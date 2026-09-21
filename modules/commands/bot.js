@@ -54,7 +54,7 @@ module.exports = {
       }
 
       if (input === "👌") {
-        return api.sendMessage("Tusi Awesome ho 👌👌👌", threadID, messageID);
+        return api.sendMessage("𝑻𝒖𝒔𝒊 𝒂𝒘𝒔𝒐𝒎𝒆 𝒉𝒐 𝒈👌👌", threadID, messageID);
       }
 
       if (input === "lol" || input === "lol bot") {
