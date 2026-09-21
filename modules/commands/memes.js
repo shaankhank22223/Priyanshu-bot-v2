@@ -12,7 +12,7 @@ module.exports = {
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: true,
     permission: "PUBLIC",
-    cooldown: 1,
+    cooldown: 5,
     category: "FUN"
   },
 
@@ -20,7 +20,7 @@ module.exports = {
     const { threadID, messageID } = message;
 
     try {
-      const link = [
+      const links = [
         "https://i.imgur.com/2YpLtS7.jpeg",
         "https://i.imgur.com/2U6ZsLI.jpeg",
         "https://i.imgur.com/7JHCJXX.jpeg",
@@ -32,40 +32,36 @@ module.exports = {
       ];
 
       // Random link select karein
-      const randomImage = link[Math.floor(Math.random() * link.length)];
+      const randomImage = links[Math.floor(Math.random() * links.length)];
       
-      // Cache directory check karein
+      // Cache directory ensure karein
       const cachePath = path.join(__dirname, "cache");
       if (!fs.existsSync(cachePath)) fs.mkdirSync(cachePath, { recursive: true });
 
       const tempPath = path.join(cachePath, `meme_${Date.now()}.jpg`);
 
-      // Image download karein (Binary Stream me)
-      const response = await axios({
-        method: "GET",
-        url: randomImage,
-        responseType: "stream"
+      // Image download karein (proper headers ke saath)
+      const response = await axios.get(randomImage, { 
+        responseType: 'arraybuffer',
+        headers: {
+          'User-Agent': 'Mozilla/5.0'
+        }
       });
 
-      const writer = fs.createWriteStream(tempPath);
-      response.data.pipe(writer);
+      // Binary data ko save karein (utf-8 hata diya gaya hai)
+      fs.writeFileSync(tempPath, Buffer.from(response.data));
 
-      writer.on("finish", () => {
-        return api.sendMessage({
-          body: `😂 𝐒𝐇𝐀𝐀𝐍 𝐄𝐃𝐈𝐓𝐎𝐑 😂\n\nTotal photos available: ${link.length}`,
-          attachment: fs.createReadStream(tempPath)
-        }, threadID, () => {
-          // File delete karein bhejne ke baad
-          if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-        }, messageID);
-      });
-
-      writer.on("error", (err) => {
-        return api.sendMessage("❌ Image load karne mein error aaya.", threadID, messageID);
-      });
+      return api.sendMessage({
+        body: `😂 𝐒𝐇𝐀𝐀𝐍 𝐄𝐃𝐈𝐓𝐎𝐑 😂\n\nTotal photos available: ${links.length}`,
+        attachment: fs.createReadStream(tempPath)
+      }, threadID, () => {
+        // File delete karein bhejne ke baad
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      }, messageID);
 
     } catch (error) {
-      return api.sendMessage("❌ Image load karne mein error aaya.", threadID, messageID);
+      global.logger.error(`Error in meme command: ${error.message}`);
+      return api.sendMessage("❌ Image load karne mein error aaya. Network ya API ka issue ho sakta hai.", threadID, messageID);
     }
   }
 };
