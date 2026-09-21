@@ -1,3 +1,8 @@
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
+
+// Message Data Array
 const nam = [
   {
     timer: '12:00:00 AM',
@@ -104,57 +109,97 @@ module.exports = {
     name: "autosent",
     aliases: [],
     version: "1.0.0",
-    description: "Set Karne Ke Bad Automatically Msg Send Karega",
+    description: "Automatically sends scheduled messages to all groups based on Karachi time",
     usage: "{prefix}autosent",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: true,
     permission: "PUBLIC",
-    cooldown: 3,
+    cooldown: 5,
     category: "SYSTEM"
   },
 
-  init: function(api) {
-    if (!global.autoSentStarted) {
-      global.autoSentStarted = true;
-      setInterval(async () => {
+  init: function({ api }) {
+    if (!global.autoSentInterval) {
+      global.logger.system("AutoSent Karachi Notification system initialized.");
+      
+      global.autoSentInterval = setInterval(async () => {
         try {
-          const timeString = new Date().toLocaleTimeString("en-US", {
+          // Get current time in Karachi timezone with 2-digit hour padding
+          const now = new Date();
+          const timeString = now.toLocaleTimeString("en-US", {
             timeZone: "Asia/Karachi",
-            hour12: true,
             hour: '2-digit',
             minute: '2-digit',
-            second: '2-digit'
-          });
+            second: '2-digit',
+            hour12: true
+          }).toUpperCase(); // Ensure AM/PM matches uppercase in 'nam' array
 
+          // Prevent sending multiple times in the same second
           if (lastSentTime === timeString) return;
 
+          // Find if current Karachi time matches any entry in 'nam' array
           const matched = nam.find(i => i.timer === timeString);
+          
           if (matched) {
             lastSentTime = timeString;
-            const allThreads = global.data.allThreadID || [];
+            
+            // Fetch all thread IDs from database
+            let allThreads = [];
+            try {
+              if (global.Thread && typeof global.Thread.getAll === "function") {
+                const threads = await global.Thread.getAll();
+                allThreads = threads.map(t => t.threadID);
+              } else if (global.data && global.data.allThreadID) {
+                allThreads = global.data.allThreadID;
+              }
+            } catch (dbError) {
+              global.logger.error("AutoSent database fetch failed: " + dbError.message);
+            }
+
+            if (allThreads.length === 0) return;
+
+            // Select message
             const msg = matched.message[Math.floor(Math.random() * matched.message.length)];
 
+            // Broadcast to all groups
             for (const threadID of allThreads) {
               api.sendMessage(msg, threadID, (err) => {
-                if (err) console.error(`[AUTOSENT] Failed to send to ${threadID}:`, err);
+                if (err) {
+                  // Silently skip if bot was kicked or thread is inaccessible
+                }
               });
+              // 500ms delay to prevent Facebook spam detection
+              await new Promise(resolve => setTimeout(resolve, 500));
             }
           }
         } catch (error) {
-          console.error("[AUTOSENT] Error in interval:", error);
+          global.logger.error("Error in AutoSent Interval: " + error.message);
         }
-      }, 1000);
-      global.logger.system("AutoSent hourly notification system started.");
+      }, 1000); // Check every second
     }
   },
 
   run: async function({ api, message }) {
     const { threadID, messageID } = message;
     try {
-      return api.sendMessage("✅ AutoSent command active hai, yeh har ghante auto-message send karega sabhi groups mein.", threadID, messageID);
-    } catch (error) {
-      global.logger.error(`Error in autosent: ${error.message}`);
-      return api.sendMessage("❌ An error occurred.", threadID, messageID);
+      const now = new Date().toLocaleTimeString("en-US", {
+        timeZone: "Asia/Karachi",
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      });
+
+      return api.sendMessage(
+        `⏰ 𝐀𝐮𝐭𝐨𝐒𝐞𝐧𝐭 𝐒𝐲𝐬𝐭𝐞𝐦 𝐒𝐭𝐚𝐭𝐮𝐬:\n\n` +
+        `● 𝐂𝐮𝐫𝐫𝐞𝐧𝐭 𝐓𝐢𝐦𝐞 (𝐊𝐚𝐫𝐚𝐜𝐡𝐢): ${now}\n` +
+        `● 𝐒𝐭𝐚𝐭𝐮𝐬: Active ✅\n\n` +
+        `This command automatically broadcasts scheduled notifications to all groups.`, 
+        threadID, 
+        messageID
+      );
+    } catch (e) {
+      return api.sendMessage("❌ Error checking system status.", threadID, messageID);
     }
   }
 };
