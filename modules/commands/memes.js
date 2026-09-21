@@ -40,20 +40,31 @@ module.exports = {
 
       const tempPath = path.join(cachePath, `meme_${Date.now()}.jpg`);
 
-      // Image download karein
-      const response = await axios.get(randomImage, { responseType: 'arraybuffer' });
-      fs.writeFileSync(tempPath, Buffer.from(response.data, 'utf-8'));
+      // Image download karein (Binary Stream me)
+      const response = await axios({
+        method: "GET",
+        url: randomImage,
+        responseType: "stream"
+      });
 
-      return api.sendMessage({
-        body: `😂 𝐒𝐇𝐀𝐀𝐍 𝐄𝐃𝐈𝐓𝐎𝐑 😂\n\nTotal photos available: ${link.length}`,
-        attachment: fs.createReadStream(tempPath)
-      }, threadID, () => {
-        // File delete karein bhejne ke baad
-        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-      }, messageID);
+      const writer = fs.createWriteStream(tempPath);
+      response.data.pipe(writer);
+
+      writer.on("finish", () => {
+        return api.sendMessage({
+          body: `😂 𝐒𝐇𝐀𝐀𝐍 𝐄𝐃𝐈𝐓𝐎𝐑 😂\n\nTotal photos available: ${link.length}`,
+          attachment: fs.createReadStream(tempPath)
+        }, threadID, () => {
+          // File delete karein bhejne ke baad
+          if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+        }, messageID);
+      });
+
+      writer.on("error", (err) => {
+        return api.sendMessage("❌ Image load karne mein error aaya.", threadID, messageID);
+      });
 
     } catch (error) {
-      global.logger.error(`Error in meme command: ${error.message}`);
       return api.sendMessage("❌ Image load karne mein error aaya.", threadID, messageID);
     }
   }
