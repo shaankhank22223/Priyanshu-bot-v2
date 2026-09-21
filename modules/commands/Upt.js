@@ -61,7 +61,7 @@ module.exports = {
                               `✰ 𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 ➪ ${totalCommands} 📊\n` +
                               `✰ 𝗢𝘄𝗻𝗲𝗿 ➪ ${ownerName} 👑\n\n` +
                               `┗━━━━━━━━━━━━━━━━━━━━━━━┛\n` +
-                              `𝗠𝗔𝗗𝗘 𝗕𝗬 ❤️‍🔥 𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭`;
+                              `𝗠𝗔𝗗𝗘 𝗕𝗬 ❤️‍🔥 𝗦𝗛𝗔𝗔𝗡 𝗞𝗛𝗔𝗡`;
 
       return api.sendMessage(responseMessage, threadID, messageID);
     } catch (error) {
