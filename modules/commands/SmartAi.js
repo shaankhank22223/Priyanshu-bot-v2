@@ -8,15 +8,15 @@ const chatMemory = { history: {} };
 const AI_API = "https://uzairrajputapis.qzz.io/api/ai/gemini";
 const PRIYANSHU_API_KEY = "apim_woYjgHP57d44pyaII3LzkGZ5kSK-3tE-H0QYlWmEqDE";
 const OWNER_TAG = "»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««";
-const OWNER_UID = "100016828397863"; // Shaan ka UID
+const OWNER_UID = "100016828397863"; 
 
 module.exports = {
   config: {
     name: "muskan",
     aliases: [],
     version: "1.0.0",
-    description: "Muskan AI + Priyanshu API Media Downloader",
-    usage: "{prefix}muskan <baat karein ya gaana maangein>",
+    description: "Muskan AI + YouTube Media Downloader (Fixed)",
+    usage: "{prefix}muskan [message/song name/video name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: true,
     permission: "PUBLIC",
@@ -26,15 +26,13 @@ module.exports = {
 
   run: async function ({ api, message, args }) {
     const { threadID, messageID, senderID, body } = message;
-    
-    try {
-      let cleanedMsg = (body || "").replace(/^muskan[\s,!.?:-]*/i, "").trim();
 
-      if (!cleanedMsg && args.length === 0) {
+    try {
+      let cleanedMsg = (args.join(" ") || "").trim();
+
+      if (!cleanedMsg) {
         return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
       }
-      
-      if (!cleanedMsg && args.length > 0) cleanedMsg = args.join(" ");
 
       const isVideoReq = /\b(video|vdo|mp4|film|movie)\b/i.test(cleanedMsg);
       const isAudioReq = /\b(song|music|audio|mp3|play|gaana|gane|ghana)\b/i.test(cleanedMsg);
@@ -60,6 +58,7 @@ module.exports = {
         const format = isVideoReq ? "mp4" : "mp3";
 
         const apiUrl = `https://priyanshuapi.qzz.io/api/runner/youtube-downloader-v2/download`;
+        
         const response = await axios.post(apiUrl, {
           url: videoUrl,
           format: format,
@@ -69,45 +68,70 @@ module.exports = {
             'Authorization': `Bearer ${PRIYANSHU_API_KEY}`,
             'Content-Type': 'application/json'
           },
-          timeout: 60000
+          timeout: 120000 // Increased timeout for larger files
         });
 
         const downloadUrl = response.data?.data?.downloadUrl;
-        if (!downloadUrl) throw new Error("Link not found");
+        if (!downloadUrl) throw new Error("Download link not generated.");
 
         const cacheDir = path.join(__dirname, "cache");
         if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 
-        const fileName = `${Date.now()}.${format}`;
+        const fileName = `${Date.now()}_${senderID}.${format}`;
         const cachePath = path.join(cacheDir, fileName);
 
-        const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n🥀𝒀𝑬 𝑳𝑶 𝑨𝑷𝑲𝑰 👉 ${format.toUpperCase()}`;
+        const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰 👉 ${format.toUpperCase()}`;
 
+        // Download to local storage first
         const writer = fs.createWriteStream(cachePath);
-        const streamResponse = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream' });
+        const streamResponse = await axios({
+          url: downloadUrl,
+          method: 'GET',
+          responseType: 'stream',
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+
         streamResponse.data.pipe(writer);
 
         writer.on("finish", async () => {
-          const stats = fs.statSync(cachePath);
-          if (stats.size / (1024 * 1024) > 48) {
-            api.setMessageReaction("❌", messageID, () => {}, true);
-            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-            return api.sendMessage("⚠️ Maafi, file bahut badi hai!", threadID, messageID);
-          }
+          try {
+            const stats = fs.statSync(cachePath);
+            const fileSizeInMB = stats.size / (1024 * 1024);
 
-          api.setMessageReaction("✅", messageID, () => {}, true);
+            // FB standard limit is 25MB, though some bots handle up to 45MB. 
+            // Setting 40MB as a safer upper limit.
+            if (fileSizeInMB > 40) {
+              api.setMessageReaction("❌", messageID, () => {}, true);
+              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+              return api.sendMessage("⚠️ Maafi, file size limit (40MB) se zyada hai!", threadID, messageID);
+            }
 
-          if (isVideoReq) {
-            api.sendMessage({ body: infoMsg, attachment: fs.createReadStream(cachePath) }, threadID, () => {
+            api.setMessageReaction("✅", messageID, () => {}, true);
+
+            const msgPayload = {
+              body: infoMsg,
+              attachment: fs.createReadStream(cachePath)
+            };
+
+            return api.sendMessage(msgPayload, threadID, (err) => {
+              if (err) {
+                console.error("FCA Media Send Error:", err);
+                api.sendMessage("❌ File bhejne mein dikkat hui, shayad format support nahi kar raha.", threadID, messageID);
+              }
               if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
             }, messageID);
-          } else {
-            await api.sendMessage(infoMsg, threadID, messageID);
-            api.sendMessage({ attachment: fs.createReadStream(cachePath) }, threadID, () => {
-              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-            });
+
+          } catch (e) {
+            console.error(e);
+            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
           }
         });
+
+        writer.on("error", (err) => {
+          console.error("Writer Error:", err);
+          api.sendMessage("❌ Download stream fail ho gaya.", threadID, messageID);
+        });
+        
         return;
       }
 
@@ -122,25 +146,17 @@ module.exports = {
 
       chatMemory.history[threadID] = chatMemory.history[threadID] || [];
       chatMemory.history[threadID].push(`${userName}: ${cleanedMsg}`);
-      if (chatMemory.history[threadID].length > 5) chatMemory.history[threadID].shift();
+      if (chatMemory.history[threadID].length > 10) chatMemory.history[threadID].shift();
 
       const prompt = `
 Tum Muskan ho, ek smart aur cute ladki ho jo sabhi languages mein baat kar sakti hai.
 Behavioral Rules:
-1. Normal Roman Urdu, Hinglish, aur user ki language mein baat karo. Tumhe sab pata hai. Agar koi owner ya banane wale ke bare mein puche, to bolo Shaan Khan K mere owner, meri jaan aur mere love hain.
-2. Jawab hamesha short rakho (maximum 3 lines tak).
-3. Emojis ka istemal karo lekin limit mein taaki natural lage.
-4. Naam ka baar-baar ratti lagane se bacho, baat ko bilkul natural rakho.
-5. Har user ki pehchan aur unke specific topic ko alag rakho, kisi dusre member ki baatein mix mat karo.
-6. Agar samne wala pyar ya romantic baatein kare, toh unke sath bohot sweet aur pyaar se pesh aao. Agar koi faltu ya badtameez baat kare, tabhi usko roast karo; bina wajah badtameez mat bano.
-
-Relationship Logic:
-- Agar sender UID aur Owner Shaan ki UID match karti hai (${OWNER_UID}), toh samajh jao wo Shaan hain.
-- Shaan ke liye attitude hamesha romantic, caring aur supportive rahega.
-- Kisi aur ke liye ek cool, chill aur mast friend jaisi raho gi. Agar sender Uid shoni ka 61592620318122 ho toh isko boyfriend ki tarah treat karo.
-
-Output Format:
-- Sirf raw text reply do, koi extra markdown ya asterisks use mat karna.
+1. Normal Roman Urdu, Hinglish mein baat karo. Agar koi owner ke bare mein puche, to bolo Shaan Khan mere owner, meri jaan aur mere love hain.
+2. Jawab short rakho (max 3 lines).
+3. Emojis ka use karo.
+4. Agar sender UID (${senderID}) matches Shaan UID (${OWNER_UID}), treat him with extreme love and care.
+5. Agar sender UID 61592620318122 hai, treat him like a boyfriend.
+6. Dusro ke liye ek cool friend raho.
 
 Chat history:
 ${chatMemory.history[threadID].join("\n")}
@@ -149,27 +165,25 @@ Muskan:`;
       const res = await axios.post(AI_API, { prompt });
       let reply = res.data?.result?.answer || "Hmmm... 🥺";
 
-      const lines = reply.split('\n').filter(line => line.trim() !== '');
-      if (lines.length > 4) {
-        reply = lines.slice(0, 3).join('\n') + " ✨";
-      }
-
       return api.sendMessage(reply, threadID, messageID);
 
     } catch (error) {
-      global.logger.error(`Error in muskan command: ${error.message}`);
+      console.error(`Error in muskan command:`, error);
       api.setMessageReaction("❌", messageID, () => {}, true);
-      return api.sendMessage("Server thoda thak gaya hai, baad mein try karo 🥺", threadID, messageID);
+      return api.sendMessage("Server busy hai, thodi der baad try karo! 🥺", threadID, messageID);
     }
   },
 
   handleEvent: async function ({ api, message }) {
     const { body, senderID, messageReply, threadID, messageID } = message;
     if (!body || senderID == api.getCurrentUserID()) return;
-    
-    // Trigger if replied to bot OR starts with "muskan"
-    if ((messageReply && messageReply.senderID == api.getCurrentUserID()) || body.toLowerCase().startsWith("muskan")) {
-      const args = body.split(/\s+/);
+
+    // Trigger if replied to bot or starts with "muskan" (without prefix check for ease)
+    const isBotReply = messageReply && messageReply.senderID == api.getCurrentUserID();
+    const startsWithMuskan = body.toLowerCase().startsWith("muskan");
+
+    if (isBotReply || startsWithMuskan) {
+      const args = body.replace(/^muskan/i, "").trim().split(/\s+/);
       return this.run({ api, message, args });
     }
   }
