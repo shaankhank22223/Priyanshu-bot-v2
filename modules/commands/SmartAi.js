@@ -15,7 +15,7 @@ module.exports = {
     name: "muskan",
     aliases: [],
     version: "1.0.0",
-    description: "Muskan AI + YouTube Media Downloader (Fixed Stream)",
+    description: "Muskan AI + YouTube Media Downloader (Sequential Audio Send)",
     usage: "{prefix}muskan [message/song name/video name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: true,
@@ -83,7 +83,7 @@ module.exports = {
         const fileName = `muskan_${Date.now()}_${senderID}.${format}`;
         const cachePath = path.resolve(cacheDir, fileName);
 
-        const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${format.toUpperCase()}`;
+        const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n🥀 𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${format.toUpperCase()}`;
 
         const writer = fs.createWriteStream(cachePath);
         const streamResponse = await axios({
@@ -97,49 +97,57 @@ module.exports = {
 
         writer.on("finish", async () => {
           try {
-            if (!fs.existsSync(cachePath)) throw new Error("File not found after download.");
+            if (!fs.existsSync(cachePath)) throw new Error("File not found");
             
             const stats = fs.statSync(cachePath);
             const fileSizeInMB = stats.size / (1024 * 1024);
 
             if (stats.size === 0) {
               if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-              return api.sendMessage("❌ File download empty thi, please try again.", threadID, messageID);
+              return api.sendMessage("❌ File empty download hui.", threadID, messageID);
             }
 
-            if (fileSizeInMB > 45) {
+            if (fileSizeInMB > 48) {
               api.setMessageReaction("❌", messageID, () => {}, true);
               if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-              return api.sendMessage("⚠️ Maafi, file size limit (45MB) se zyada hai!", threadID, messageID);
+              return api.sendMessage("⚠️ File size limit (48MB) se zyada hai!", threadID, messageID);
             }
 
             api.setMessageReaction("✅", messageID, () => {}, true);
 
-            const msgPayload = {
-              body: infoMsg,
-              attachment: fs.createReadStream(cachePath)
-            };
-
-            return api.sendMessage(msgPayload, threadID, (err) => {
-              if (err) {
-                console.error("FCA Send Error:", err);
-                api.sendMessage("❌ Messenger ne file reject kar di. Try again later.", threadID, messageID);
-              }
-              // Delete after sending
-              if (fs.existsSync(cachePath)) {
-                setTimeout(() => fs.unlinkSync(cachePath), 5000); 
-              }
-            }, messageID);
+            // LOGIC: Send Title first for Audio, then the file
+            if (isAudioReq) {
+              return api.sendMessage(infoMsg, threadID, (err, info) => {
+                if (!err) {
+                  api.sendMessage({
+                    attachment: fs.createReadStream(cachePath)
+                  }, threadID, () => {
+                    if (fs.existsSync(cachePath)) {
+                      setTimeout(() => fs.unlinkSync(cachePath), 5000);
+                    }
+                  });
+                }
+              }, messageID);
+            } else {
+              // For Video, send both together as usual
+              return api.sendMessage({
+                body: infoMsg,
+                attachment: fs.createReadStream(cachePath)
+              }, threadID, (err) => {
+                if (fs.existsSync(cachePath)) {
+                  setTimeout(() => fs.unlinkSync(cachePath), 5000);
+                }
+              }, messageID);
+            }
 
           } catch (e) {
-            console.error("Writer finish error:", e);
+            console.error(e);
             if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
           }
         });
 
         writer.on("error", (err) => {
-          console.error("Writer Stream Error:", err);
-          api.sendMessage("❌ Download stream fail ho gaya.", threadID, messageID);
+          api.sendMessage("❌ Stream Error!", threadID, messageID);
           if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
         });
         
@@ -179,7 +187,6 @@ Muskan:`;
       return api.sendMessage(reply, threadID, messageID);
 
     } catch (error) {
-      console.error(`Error in muskan command:`, error);
       api.setMessageReaction("❌", messageID, () => {}, true);
       return api.sendMessage("Server busy hai, thodi der baad try karo! 🥺", threadID, messageID);
     }
