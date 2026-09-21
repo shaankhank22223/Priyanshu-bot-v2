@@ -1,6 +1,6 @@
 const axios = require("axios");
 const yts = require("yt-search");
-const fs = require("fs-extra");
+const fs = require("fs");
 const path = require("path");
 
 // Global memory for chat history
@@ -15,7 +15,7 @@ module.exports = {
     name: "muskan",
     aliases: [],
     version: "1.0.0",
-    description: "Muskan AI + YouTube Media Downloader (Fixed)",
+    description: "Muskan AI + YouTube Media Downloader (Fixed Stream)",
     usage: "{prefix}muskan [message/song name/video name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: true,
@@ -68,21 +68,23 @@ module.exports = {
             'Authorization': `Bearer ${PRIYANSHU_API_KEY}`,
             'Content-Type': 'application/json'
           },
-          timeout: 120000 // Increased timeout for larger files
+          timeout: 120000
         });
 
         const downloadUrl = response.data?.data?.downloadUrl;
-        if (!downloadUrl) throw new Error("Download link not generated.");
+        if (!downloadUrl) {
+          api.setMessageReaction("❌", messageID, () => {}, true);
+          return api.sendMessage("Download link nahi mil paaya, API issue ho sakta hai. 🥺", threadID, messageID);
+        }
 
         const cacheDir = path.join(__dirname, "cache");
         if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 
-        const fileName = `${Date.now()}_${senderID}.${format}`;
-        const cachePath = path.join(cacheDir, fileName);
+        const fileName = `muskan_${Date.now()}_${senderID}.${format}`;
+        const cachePath = path.resolve(cacheDir, fileName);
 
-        const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰 👉 ${format.toUpperCase()}`;
+        const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${format.toUpperCase()}`;
 
-        // Download to local storage first
         const writer = fs.createWriteStream(cachePath);
         const streamResponse = await axios({
           url: downloadUrl,
@@ -95,15 +97,20 @@ module.exports = {
 
         writer.on("finish", async () => {
           try {
+            if (!fs.existsSync(cachePath)) throw new Error("File not found after download.");
+            
             const stats = fs.statSync(cachePath);
             const fileSizeInMB = stats.size / (1024 * 1024);
 
-            // FB standard limit is 25MB, though some bots handle up to 45MB. 
-            // Setting 40MB as a safer upper limit.
-            if (fileSizeInMB > 40) {
+            if (stats.size === 0) {
+              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+              return api.sendMessage("❌ File download empty thi, please try again.", threadID, messageID);
+            }
+
+            if (fileSizeInMB > 45) {
               api.setMessageReaction("❌", messageID, () => {}, true);
               if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-              return api.sendMessage("⚠️ Maafi, file size limit (40MB) se zyada hai!", threadID, messageID);
+              return api.sendMessage("⚠️ Maafi, file size limit (45MB) se zyada hai!", threadID, messageID);
             }
 
             api.setMessageReaction("✅", messageID, () => {}, true);
@@ -115,21 +122,25 @@ module.exports = {
 
             return api.sendMessage(msgPayload, threadID, (err) => {
               if (err) {
-                console.error("FCA Media Send Error:", err);
-                api.sendMessage("❌ File bhejne mein dikkat hui, shayad format support nahi kar raha.", threadID, messageID);
+                console.error("FCA Send Error:", err);
+                api.sendMessage("❌ Messenger ne file reject kar di. Try again later.", threadID, messageID);
               }
-              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+              // Delete after sending
+              if (fs.existsSync(cachePath)) {
+                setTimeout(() => fs.unlinkSync(cachePath), 5000); 
+              }
             }, messageID);
 
           } catch (e) {
-            console.error(e);
+            console.error("Writer finish error:", e);
             if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
           }
         });
 
         writer.on("error", (err) => {
-          console.error("Writer Error:", err);
+          console.error("Writer Stream Error:", err);
           api.sendMessage("❌ Download stream fail ho gaya.", threadID, messageID);
+          if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
         });
         
         return;
@@ -178,12 +189,11 @@ Muskan:`;
     const { body, senderID, messageReply, threadID, messageID } = message;
     if (!body || senderID == api.getCurrentUserID()) return;
 
-    // Trigger if replied to bot or starts with "muskan" (without prefix check for ease)
     const isBotReply = messageReply && messageReply.senderID == api.getCurrentUserID();
     const startsWithMuskan = body.toLowerCase().startsWith("muskan");
 
     if (isBotReply || startsWithMuskan) {
-      const args = body.replace(/^muskan/i, "").trim().split(/\s+/);
+      const args = body.toLowerCase().startsWith("muskan") ? body.split(/\s+/).slice(1) : body.split(/\s+/);
       return this.run({ api, message, args });
     }
   }
