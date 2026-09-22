@@ -6,7 +6,7 @@ module.exports = {
   config: {
     name: "mp4",
     aliases: ["video", "vdoc"],
-    version: "1.0.1",
+    version: "1.0.0",
     description: "Search 1-10 videos and download (360p+)",
     usage: "{prefix}mp4 [video name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
@@ -16,9 +16,8 @@ module.exports = {
     category: "MEDIA"
   },
 
-  run: async function ({ api, message, args, event }) {
-    const msgData = message || event;
-    const { threadID, messageID, senderID } = msgData;
+  run: async function({ api, message, args }) {
+    const { threadID, messageID, senderID } = message;
     const query = args.join(" ");
 
     if (!query) {
@@ -36,7 +35,7 @@ module.exports = {
         headers 
       });
       
-      const videos = searchRes.data?.result?.slice(0, 10);
+      const videos = searchRes.data.result.slice(0, 10);
 
       if (!videos || videos.length === 0) {
         return api.sendMessage("❌ No results found.", threadID, messageID);
@@ -52,64 +51,39 @@ module.exports = {
       return api.sendMessage(searchList, threadID, (err, info) => {
         if (err) return;
         
-        // Register reply listener
-        const replyObj = {
+        const replies = global.client.replies.get(threadID) || [];
+        replies.push({
           command: this.config.name,
           messageID: info.messageID,
           author: senderID,
           videos: videos
-        };
-
-        if (global.client.replies) {
-          if (typeof global.client.replies.set === 'function') {
-            const replies = global.client.replies.get(threadID) || [];
-            replies.push(replyObj);
-            global.client.replies.set(threadID, replies);
-          } else {
-            global.client.replies[info.messageID] = replyObj;
-          }
-        } else if (global.client.handleReply) {
-          if (typeof global.client.handleReply.set === 'function') {
-            global.client.handleReply.set(info.messageID, replyObj);
-          } else {
-            global.client.handleReply.push(replyObj);
-          }
-        }
+        });
+        global.client.replies.set(threadID, replies);
       }, messageID);
 
     } catch (err) {
-      if (global.logger) global.logger.error(`Error in mp4 search: ${err.message}`);
+      global.logger.error(`Error in mp4 search: ${err.message}`);
       return api.sendMessage(`❌ Error: ${err.message}`, threadID, messageID);
     }
   },
 
-  handleReply: async function ({ api, event, message, handleReply, replyData }) {
-    const msgData = event || message;
-    const { threadID, messageID, body, senderID } = msgData;
-    const data = replyData || handleReply || msgData.handleReply;
-
-    if (!data) return;
-
-    // Security check: Only original sender can pick a video
-    if (data.author && data.author !== senderID) return;
-
-    const choice = parseInt(body.trim());
-    if (isNaN(choice) || choice < 1 || choice > data.videos.length) {
-      return api.sendMessage("❌ Invalid choice! Choose a number from the list (1-10).", threadID, messageID);
-    }
-
-    const selectedVideo = data.videos[choice - 1];
+  handleReply: async function({ api, message, replyData }) {
+    const { threadID, messageID, body, senderID } = message;
     
-    // Remove the list message to keep chat clean
-    if (data.messageID) {
-      api.unsendMessage(data.messageID).catch(() => {});
+    // Check if the person replying is the one who searched
+    if (replyData.author !== senderID) return;
+
+    const choice = parseInt(body);
+    if (isNaN(choice) || choice < 1 || choice > replyData.videos.length) {
+      return api.sendMessage("❌ Invalid choice! Choose a number from the list.", threadID, messageID);
     }
 
-    const waitMsg = await new Promise((resolve) => {
-      api.sendMessage(`✅ Apki Request Jari Hai Please wait...`, threadID, (err, info) => {
-        resolve(info);
-      });
-    });
+    const selectedVideo = replyData.videos[choice - 1];
+    
+    // Unsend the list message
+    api.unsendMessage(replyData.messageID);
+
+    const waitMsg = await api.sendMessage(`✅ Apki Request Jari Hai Please wait...`, threadID);
 
     try {
       const headers = { 
@@ -121,16 +95,11 @@ module.exports = {
         url: selectedVideo.url 
       }, { headers });
       
-      const downloadUrl = dlRes.data?.result?.downloadUrl || dlRes.data?.downloadUrl;
+      const downloadUrl = dlRes.data.result.downloadUrl;
 
-      if (!downloadUrl) throw new Error("Could not retrieve a valid download link.");
+      if (!downloadUrl) throw new Error("Could not get download link.");
 
-      const cacheDir = path.join(__dirname, "cache");
-      if (!fs.existsSync(cacheDir)) {
-        fs.mkdirSync(cacheDir, { recursive: true });
-      }
-
-      const cachePath = path.join(cacheDir, `mp4_${Date.now()}.mp4`);
+      const cachePath = path.join(__dirname, "cache", `video_${Date.now()}.mp4`);
       
       const response = await axios({ 
         method: 'GET', 
@@ -143,38 +112,40 @@ module.exports = {
       response.data.pipe(writer);
 
       writer.on('finish', async () => {
-        const stats = fs.statSync(cachePath);
-        const fileSizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
+        try {
+          const stats = fs.statSync(cachePath);
+          const fileSizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
 
-        // Check if file exceeds Messenger limit (100MB)
-        if (stats.size > 104857600) { 
-          if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-          if (waitMsg && waitMsg.messageID) api.unsendMessage(waitMsg.messageID).catch(() => {});
-          return api.sendMessage(`⚠️ Size: ${fileSizeInMB}MB exceeds Messenger limit. Link: ${downloadUrl}`, threadID, messageID);
+          if (stats.size > 104857600) { // 100MB Limit
+            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+            api.unsendMessage(waitMsg.messageID);
+            return api.sendMessage(`⚠️ Size: ${fileSizeInMB}MB exceeds limit.\n🔗 Link: ${downloadUrl}`, threadID, messageID);
+          }
+
+          const msg = {
+            body: `🖤 Title: ${selectedVideo.title}\n📊 Quality: HD\n📦 Size: ${fileSizeInMB}MB\n\n»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««\n🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉MUSIC-VIDEO`,
+            attachment: fs.createReadStream(cachePath)
+          };
+
+          return api.sendMessage(msg, threadID, (err) => {
+            if (err) api.sendMessage(`❌ Messenger failed to send the video.`, threadID, messageID);
+            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+            api.unsendMessage(waitMsg.messageID);
+          }, messageID);
+        } catch (e) {
+          api.sendMessage(`❌ Processing Error: ${e.message}`, threadID, messageID);
         }
-
-        const msg = {
-          body: `🖤 Title: ${selectedVideo.title}\n📊 Quality: HD\n📦 Size: ${fileSizeInMB}MB\n\n»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««\n🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉MUSIC-VIDEO`,
-          attachment: fs.createReadStream(cachePath)
-        };
-
-        return api.sendMessage(msg, threadID, (err) => {
-          if (err) api.sendMessage(`❌ Messenger failed to send file. Error: ${err.message}`, threadID, messageID);
-          if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-          if (waitMsg && waitMsg.messageID) api.unsendMessage(waitMsg.messageID).catch(() => {});
-        }, messageID);
       });
 
       writer.on('error', (err) => {
         if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-        if (waitMsg && waitMsg.messageID) api.unsendMessage(waitMsg.messageID).catch(() => {});
-        if (global.logger) global.logger.error(`Error in writer: ${err.message}`);
-        return api.sendMessage(`❌ Download stream error: ${err.message}`, threadID, messageID);
+        api.unsendMessage(waitMsg.messageID);
+        api.sendMessage(`❌ Download stream error.`, threadID, messageID);
       });
 
     } catch (err) {
-      if (waitMsg && waitMsg.messageID) api.unsendMessage(waitMsg.messageID).catch(() => {});
-      if (global.logger) global.logger.error(`Error in mp4 download: ${err.message}`);
+      if (waitMsg) api.unsendMessage(waitMsg.messageID);
+      global.logger.error(`Error in mp4 handleReply: ${err.message}`);
       return api.sendMessage(`❌ Error: ${err.message}`, threadID, messageID);
     }
   }
