@@ -39,7 +39,7 @@ module.exports = {
 
     try {
       // 1. Send searching status
-      const info = await api.sendMessage("🔍 Searching for your song, please wait...", threadID, messageID);
+      const info = await api.sendMessage("✅ Apki Request Jari Hai Please wait...", threadID, messageID);
       searchMsgID = info.messageID;
 
       let videoUrl = query;
