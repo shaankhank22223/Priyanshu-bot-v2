@@ -21,6 +21,12 @@ module.exports = {
     const prefix = global.config.prefix;
     const commands = global.client.commands;
 
+    // Ensure cache directory exists
+    const cacheDir = path.join(__dirname, "cache");
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+    }
+
     try {
       // 1. Logic for "help all"
       if (args[0] === "all") {
@@ -28,7 +34,7 @@ module.exports = {
         const categories = {};
 
         commands.forEach((cmd) => {
-          const cat = cmd.config.category.toUpperCase();
+          const cat = (cmd.config.category || "GENERAL").toUpperCase();
           if (!categories[cat]) categories[cat] = [];
           categories[cat].push(cmd.config.name);
         });
@@ -40,16 +46,17 @@ module.exports = {
         msg += `Total Commands: ${commands.size}\nDeveloper: 𝐒𝐇𝐀𝐀𝐍 𝐊𝐇𝐀𝐍`;
         
         const imgUrl = "https://i.imgur.com/WW1nVy9.jpeg";
-        const cachePath = path.join(__dirname, "cache", `help_all.jpg`);
-        const getImg = (await axios.get(imgUrl, { responseType: "arraybuffer" })).data;
-        fs.writeFileSync(cachePath, Buffer.from(getImg, "utf-8"));
-
-        return api.sendMessage({
-          body: msg,
-          attachment: fs.createReadStream(cachePath)
-        }, threadID, () => {
-          if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-        }, messageID);
+        const cachePath = path.join(cacheDir, `help_all_${Date.now()}.jpg`);
+        
+        try {
+          const getImg = (await axios.get(imgUrl, { responseType: "arraybuffer" })).data;
+          fs.writeFileSync(cachePath, Buffer.from(getImg));
+          return api.sendMessage({ body: msg, attachment: fs.createReadStream(cachePath) }, threadID, () => {
+            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+          }, messageID);
+        } catch (imgError) {
+          return api.sendMessage(msg, threadID, messageID);
+        }
       }
 
       // 2. Logic for specific command info
@@ -72,21 +79,22 @@ module.exports = {
 
         const imgLinks = ["https://i.imgur.com/9JZobiR.jpeg", "https://i.imgur.com/G2msKfY.jpeg"];
         const randomImg = imgLinks[Math.floor(Math.random() * imgLinks.length)];
-        const cachePath = path.join(__dirname, "cache", `help_cmd.jpg`);
-        const getImg = (await axios.get(randomImg, { responseType: "arraybuffer" })).data;
-        fs.writeFileSync(cachePath, Buffer.from(getImg, "utf-8"));
-
-        return api.sendMessage({
-          body: msg,
-          attachment: fs.createReadStream(cachePath)
-        }, threadID, () => {
-          if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-        }, messageID);
+        const cachePath = path.join(cacheDir, `help_cmd_${Date.now()}.jpg`);
+        
+        try {
+          const getImg = (await axios.get(randomImg, { responseType: "arraybuffer" })).data;
+          fs.writeFileSync(cachePath, Buffer.from(getImg));
+          return api.sendMessage({ body: msg, attachment: fs.createReadStream(cachePath) }, threadID, () => {
+            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+          }, messageID);
+        } catch (imgError) {
+          return api.sendMessage(msg, threadID, messageID);
+        }
       }
 
       // 3. Logic for Paginated Command List
       const page = parseInt(args[0]) || 1;
-      const commandsPerPage = 10;
+      const commandsPerPage = 15;
       const allCmds = Array.from(commands.keys()).sort();
       const totalPages = Math.ceil(allCmds.length / commandsPerPage);
 
@@ -109,20 +117,21 @@ module.exports = {
       msg += `★᭄ 𝐂𝐫𝐞𝐝𝐢𝐭'𝐬: 𝐒𝐇𝐀𝐀𝐍 𝐊𝐇𝐀𝐍 ★`;
 
       const listImg = "https://i.imgur.com/WW1nVy9.jpeg";
-      const cachePath = path.join(__dirname, "cache", `help_list.jpg`);
-      const getImg = (await axios.get(listImg, { responseType: "arraybuffer" })).data;
-      fs.writeFileSync(cachePath, Buffer.from(getImg, "utf-8"));
-
-      return api.sendMessage({
-        body: msg,
-        attachment: fs.createReadStream(cachePath)
-      }, threadID, () => {
-        if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-      }, messageID);
+      const cachePath = path.join(cacheDir, `help_list_${Date.now()}.jpg`);
+      
+      try {
+        const getImg = (await axios.get(listImg, { responseType: "arraybuffer" })).data;
+        fs.writeFileSync(cachePath, Buffer.from(getImg));
+        return api.sendMessage({ body: msg, attachment: fs.createReadStream(cachePath) }, threadID, () => {
+          if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+        }, messageID);
+      } catch (imgError) {
+        return api.sendMessage(msg, threadID, messageID);
+      }
 
     } catch (error) {
       global.logger.error(`Error in help command: ${error.message}`);
-      return api.sendMessage("❌ An error occurred while generating the help menu.", threadID, messageID);
+      return api.sendMessage("❌ An error occurred while generating the help menu. Check console for details.", threadID, messageID);
     }
   }
 };
