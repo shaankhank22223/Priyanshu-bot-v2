@@ -1,261 +1,128 @@
-/**
- * Help Command
- * Displays available commands and their usage
- */
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 module.exports = {
   config: {
-    name: 'help',
-    aliases: ['h', 'menu', 'Help', 'HELP'],
-    description: 'Shows available commands with pagination',
-    usage: '{prefix}help [page/all/command]',
+    name: "help",
+    aliases: ["h", "cmds", "commands"],
+    version: "1.0.0",
+    description: "Shows the list of available commands or detailed info of a specific command.",
+    usage: "{prefix}help [all | page | command name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: true,
-    permission: 'PUBLIC',
-    cooldown: 2,
-    category: 'GENERAL'
+    permission: "PUBLIC",
+    cooldown: 5,
+    category: "SYSTEM"
   },
 
-  /**
-   * Command execution
-   * @param {Object} options - Options object
-   * @param {Object} options.api - Facebook API instance
-   * @param {Object} options.message - Message object
-   * @param {Array<string>} options.args - Command arguments
-   */
-  run: async function ({ api, message, args }) {
-    const { threadID, messageID, senderID } = message;
+  run: async function({ api, message, args }) {
+    const { threadID, messageID } = message;
     const prefix = global.config.prefix;
+    const commands = global.client.commands;
 
-    // If a specific command is requested
-    if (args.length > 0 && isNaN(args[0]) && args[0].toLowerCase() !== 'all') {
-      const commandName = args[0].toLowerCase();
-      const command = global.client.commands.get(commandName) ||
-        [...global.client.commands.values()].find(cmd =>
-          cmd.config.aliases && cmd.config.aliases.includes(commandName)
-        );
+    try {
+      // 1. Logic for "help all"
+      if (args[0] === "all") {
+        let msg = "𝗖𝗼𝗺𝗺𝗮𝗻𝗱 𝗟𝗶𝘀𝘁 (𝗔𝗹𝗹)\n\n";
+        const categories = {};
 
-      if (!command) {
-        return global.api.sendMessage(`❌ Command "${commandName}" not found.`, threadID, messageID);
-      }
+        commands.forEach((cmd) => {
+          const cat = cmd.config.category.toUpperCase();
+          if (!categories[cat]) categories[cat] = [];
+          categories[cat].push(cmd.config.name);
+        });
 
-      // Check if user has permission to view this command
-      const hasPermission = await global.permissions.checkPermission(senderID, command.config.permission);
-      if (!hasPermission) {
-        return global.api.sendMessage(`❌ You don't have permission to view this command.`, threadID, messageID);
-      }
-
-      // Format command info with improved structure
-      let reply = `╭─────────────────╮
-│    📋 COMMAND INFO 📋  │
-╰─────────────────╯
-
-📌 𝗡𝗔𝗠𝗘: ${command.config.name}
-📝 𝗗𝗘𝗦𝗖𝗥𝗜𝗣𝗧𝗜𝗢𝗡: ${command.config.description || 'No description provided'}
-🔄 𝗨𝗦𝗔𝗚𝗘: ${command.config.usage?.replace('{prefix}', prefix) || `${prefix}${command.config.name}`}
-⏱️ 𝗖𝗢𝗢𝗟𝗗𝗢𝗪𝗡: ${command.config.cooldown || 5} seconds
-🔑 𝗣𝗥𝗘𝗙𝗜𝗫 𝗥𝗘𝗤𝗨𝗜𝗥𝗘𝗗: ${command.config.hasPrefix === true ? 'Yes' : 'No'}`;
-
-      if (command.config.aliases && command.config.aliases.length > 0) {
-        reply += `\n🔄 𝗔𝗟𝗜𝗔𝗦𝗘𝗦: ${command.config.aliases.map(a => prefix + a).join(', ')}`;
-      }
-
-      reply += `\n🔒 𝗣𝗘𝗥𝗠𝗜𝗦𝗦𝗜𝗢𝗡: ${command.config.permission || 'PUBLIC'}
-📂 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗬: ${command.config.category || 'UNCATEGORIZED'}
-👨‍💻 𝗖𝗥𝗘𝗗𝗜𝗧: ${command.config.credit || 'Unknown'}`;
-
-      return global.api.sendMessage(reply, threadID, messageID);
-    }
-
-    // Determine page number or if showing all commands
-    const COMMANDS_PER_PAGE = 20;
-    let showAll = false;
-    let pageNumber = 1;
-
-    if (args.length > 0) {
-      if (args[0].toLowerCase() === 'all') {
-        showAll = true;
-      } else if (!isNaN(args[0])) {
-        pageNumber = parseInt(args[0]);
-        if (pageNumber < 1) pageNumber = 1;
-      }
-    }
-
-    // Get all commands user has permission to use
-    const commands = [...new Set(global.client.commands.values())];
-    const permittedCommands = [];
-
-    for (const cmd of commands) {
-      const hasPermission = await global.permissions.checkPermission(senderID, cmd.config.permission || 'PUBLIC');
-      if (hasPermission) {
-        permittedCommands.push(cmd);
-      }
-    }
-
-    // Sort commands alphabetically
-    permittedCommands.sort((a, b) => a.config.name.localeCompare(b.config.name));
-
-    if (showAll) {
-      // Show all commands
-      let reply = `╭─────────────────╮
-│    📋 ALL COMMAND  📋   │
-╰─────────────────╯
-
-📊 𝗧𝗢𝗧𝗔𝗟 𝗖𝗢𝗠𝗠𝗔𝗡𝗗𝗦: ${permittedCommands.length}
-📝 𝗨𝗦𝗘: ${prefix}help [command] for details
-📄 𝗣𝗔𝗚𝗜𝗡𝗔𝗧𝗘𝗗: ${prefix}help [page number]
-
-`;
-
-      // Group commands by category for all view
-      const groupedCommands = {};
-      for (const cmd of permittedCommands) {
-        const category = cmd.config.category || 'UNCATEGORIZED';
-        if (!groupedCommands[category]) {
-          groupedCommands[category] = [];
+        for (const cat in categories) {
+          msg += `☂︎ ${cat}\n${categories[cat].join(" • ")}\n\n`;
         }
-        // Only commands with hasPrefix: false show without prefix, all others show with prefix
-        const commandDisplay = cmd.config.hasPrefix === false ? cmd.config.name : `${prefix}${cmd.config.name}`;
-        groupedCommands[category].push(commandDisplay);
+
+        msg += `Total Commands: ${commands.size}\nDeveloper: 𝐒𝐇𝐀𝐀𝐍 𝐊𝐇𝐀𝐍`;
+        
+        const imgUrl = "https://i.imgur.com/WW1nVy9.jpeg";
+        const cachePath = path.join(__dirname, "cache", `help_all.jpg`);
+        const getImg = (await axios.get(imgUrl, { responseType: "arraybuffer" })).data;
+        fs.writeFileSync(cachePath, Buffer.from(getImg, "utf-8"));
+
+        return api.sendMessage({
+          body: msg,
+          attachment: fs.createReadStream(cachePath)
+        }, threadID, () => {
+          if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+        }, messageID);
       }
 
-      // Define category order and emojis
-      const categoryOrder = [
-        'GENERAL', 'ECONOMY', 'ADMIN', 'MODERATION',
-        'UTILITY', 'FUN', 'INVENTORY', 'NSFW', 'SYSTEM', 'UNCATEGORIZED'
-      ];
+      // 2. Logic for specific command info
+      if (args[0] && isNaN(args[0])) {
+        const commandName = args[0].toLowerCase();
+        const command = commands.get(commandName) || commands.find(cmd => cmd.config.aliases && cmd.config.aliases.includes(commandName));
 
-      const categoryEmojis = {
-        'GENERAL': '🔧',
-        'ECONOMY': '💰',
-        'ADMIN': '👑',
-        'MODERATION': '🛡️',
-        'UTILITY': '🔨',
-        'FUN': '🎮',
-        'INVENTORY': '🎒',
-        'NSFW': '🔞',
-        'SYSTEM': '⚙️',
-        'UNCATEGORIZED': '📁'
-      };
+        if (!command) {
+          return api.sendMessage(`❌ Command "${commandName}" not found.`, threadID, messageID);
+        }
 
-      // Sort categories and add commands
-      const sortedCategories = Object.keys(groupedCommands).sort((a, b) => {
-        return categoryOrder.indexOf(a) - categoryOrder.indexOf(b);
+        const config = command.config;
+        const msg = `─────[ ${config.name.toUpperCase()} ]──────\n\n` +
+          `📝 Description: ${config.description}\n` +
+          `🎮 Usage: ${config.usage.replace("{prefix}", prefix)}\n` +
+          `📁 Category: ${config.category}\n` +
+          `⏳ Cooldown: ${config.cooldown}s\n` +
+          `🔑 Permission: ${config.permission}\n\n` +
+          `Module coded by: ${config.credit}`;
+
+        const imgLinks = ["https://i.imgur.com/9JZobiR.jpeg", "https://i.imgur.com/G2msKfY.jpeg"];
+        const randomImg = imgLinks[Math.floor(Math.random() * imgLinks.length)];
+        const cachePath = path.join(__dirname, "cache", `help_cmd.jpg`);
+        const getImg = (await axios.get(randomImg, { responseType: "arraybuffer" })).data;
+        fs.writeFileSync(cachePath, Buffer.from(getImg, "utf-8"));
+
+        return api.sendMessage({
+          body: msg,
+          attachment: fs.createReadStream(cachePath)
+        }, threadID, () => {
+          if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+        }, messageID);
+      }
+
+      // 3. Logic for Paginated Command List
+      const page = parseInt(args[0]) || 1;
+      const commandsPerPage = 10;
+      const allCmds = Array.from(commands.keys()).sort();
+      const totalPages = Math.ceil(allCmds.length / commandsPerPage);
+
+      if (page > totalPages || page < 1) {
+        return api.sendMessage(`❌ Invalid page. Total pages: ${totalPages}`, threadID, messageID);
+      }
+
+      let msg = "★ 𝗖𝗼𝗺𝗺𝗮𝗻𝗱 𝗟𝗶𝘀𝘁 ★\n\n";
+      const start = (page - 1) * commandsPerPage;
+      const end = start + commandsPerPage;
+      const pageCmds = allCmds.slice(start, end);
+
+      pageCmds.forEach((name, index) => {
+        msg += `「 ${start + index + 1} 」📂 ${prefix}${name}\n`;
       });
 
-      for (const category of sortedCategories) {
-        const emoji = categoryEmojis[category] || '📁';
-        reply += `┌─ ${emoji} ${category} ───────┐\n`;
+      msg += `\n𝐏𝐀𝐆𝐄 (${page}/${totalPages})\n`;
+      msg += `Type "${prefix}help [name]" for details.\n`;
+      msg += `Type "${prefix}help all" for all commands.\n\n`;
+      msg += `★᭄ 𝐂𝐫𝐞𝐝𝐢𝐭'𝐬: 𝐒𝐇𝐀𝐀𝐍 𝐊𝐇𝐀𝐍 ★`;
 
-        // Sort commands alphabetically within each category
-        const sortedCommands = groupedCommands[category].sort();
+      const listImg = "https://i.imgur.com/WW1nVy9.jpeg";
+      const cachePath = path.join(__dirname, "cache", `help_list.jpg`);
+      const getImg = (await axios.get(listImg, { responseType: "arraybuffer" })).data;
+      fs.writeFileSync(cachePath, Buffer.from(getImg, "utf-8"));
 
-        // Format commands in a grid-like structure (2 columns)
-        const commandsPerRow = 2;
-        for (let i = 0; i < sortedCommands.length; i += commandsPerRow) {
-          const rowCommands = sortedCommands.slice(i, i + commandsPerRow);
-          reply += `│ ${rowCommands.join(' • ')}\n`;
-        }
+      return api.sendMessage({
+        body: msg,
+        attachment: fs.createReadStream(cachePath)
+      }, threadID, () => {
+        if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+      }, messageID);
 
-        reply += '└─────────────────────┘\n\n';
-      }
-
-      return global.api.sendMessage(reply, threadID, messageID);
-    } else {
-      // Show paginated commands
-      const totalPages = Math.ceil(permittedCommands.length / COMMANDS_PER_PAGE);
-      const startIndex = (pageNumber - 1) * COMMANDS_PER_PAGE;
-      const endIndex = startIndex + COMMANDS_PER_PAGE;
-      const commandsToShow = permittedCommands.slice(startIndex, endIndex);
-
-      if (commandsToShow.length === 0) {
-        return global.api.sendMessage(`❌ Page ${pageNumber} not found. Total pages: ${totalPages}`, threadID, messageID);
-      }
-
-      let reply = `╭─────────────────────╮
-│   📋 PAGE ${pageNumber}/${totalPages} - COMMANDS 📋  │
-╰─────────────────────╯
-
-📊 𝗧𝗢𝗧𝗔𝗟: ${permittedCommands.length} commands
-📄 𝗖𝗨𝗥𝗥𝗘𝗡𝗧: Page ${pageNumber}/${totalPages}
-📝 𝗗𝗘𝗧𝗔𝗜𝗟𝗦: ${prefix}help [command]
-🔢 𝗣𝗔𝗚𝗘𝗦: ${prefix}help [page number]
-📚 𝗔𝗟𝗟: ${prefix}help all
-
-`;
-
-      // Group commands by category for this page
-      const groupedCommands = {};
-      for (const cmd of commandsToShow) {
-        const category = cmd.config.category || 'UNCATEGORIZED';
-        if (!groupedCommands[category]) {
-          groupedCommands[category] = [];
-        }
-        // Only commands with hasPrefix: false show without prefix, all others show with prefix
-        const commandDisplay = cmd.config.hasPrefix === false ? cmd.config.name : `${prefix}${cmd.config.name}`;
-        groupedCommands[category].push(commandDisplay);
-      }
-
-      // Define category order and emojis
-      const categoryOrder = [
-        'GENERAL', 'ECONOMY', 'ADMIN', 'MODERATION',
-        'UTILITY', 'FUN', 'INVENTORY', 'NSFW', 'SYSTEM', 'UNCATEGORIZED'
-      ];
-
-      const categoryEmojis = {
-        'GENERAL': '🔧',
-        'ECONOMY': '💰',
-        'ADMIN': '👑',
-        'MODERATION': '🛡️',
-        'UTILITY': '🔨',
-        'FUN': '🎮',
-        'INVENTORY': '🎒',
-        'NSFW': '🔞',
-        'SYSTEM': '⚙️',
-        'UNCATEGORIZED': '📁'
-      };
-
-      // Sort categories and add commands
-      const sortedCategories = Object.keys(groupedCommands).sort((a, b) => {
-        return categoryOrder.indexOf(a) - categoryOrder.indexOf(b);
-      });
-
-      for (const category of sortedCategories) {
-        const emoji = categoryEmojis[category] || '📁';
-        reply += `┌─ ${emoji} ${category} ───────┐\n`;
-
-        // Sort commands alphabetically within each category
-        const sortedCommands = groupedCommands[category].sort();
-
-        // Format commands in a grid-like structure (2 columns)
-        const commandsPerRow = 2;
-        for (let i = 0; i < sortedCommands.length; i += commandsPerRow) {
-          const rowCommands = sortedCommands.slice(i, i + commandsPerRow);
-          reply += `│ ${rowCommands.join(' • ')}\n`;
-        }
-
-        reply += '└─────────────────────┘\n\n';
-      }
-
-      // Add navigation hint
-      if (totalPages > 1) {
-        const prevPage = pageNumber - 1 > 0 ? pageNumber - 1 : totalPages;
-        const nextPage = pageNumber + 1 <= totalPages ? pageNumber + 1 : 1;
-        reply += `┌─ 𝗡𝗔𝗩𝗜𝗚𝗔𝗧𝗜𝗢𝗡 ─────────┐
-│ ◀️ Previous: ${prefix}help ${prevPage}
-│ ▶️ Next: ${prefix}help ${nextPage}
-│ 📚 All: ${prefix}help all
-└─────────────────────┘`;
-      }
-
-      return global.api.sendMessage(reply, threadID, messageID);
+    } catch (error) {
+      global.logger.error(`Error in help command: ${error.message}`);
+      return api.sendMessage("❌ An error occurred while generating the help menu.", threadID, messageID);
     }
-  },
-
-  /**
-   * Handle reply (not used for this command)
-   */
-  handleReply: async function ({ api, message, args, replyData }) {
-    // This command doesn't use reply functionality
   }
 };
