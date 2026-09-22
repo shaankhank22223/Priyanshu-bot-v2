@@ -20,21 +20,10 @@ module.exports = {
     description: "YouTube song downloader (No Prefix)",
     usage: "song [Song Name or Link]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
-    hasPrefix: false, // Set to false as requested
+    hasPrefix: false,
     permission: "PUBLIC",
     cooldown: 5,
     category: "UTILITY"
-  },
-
-  handleEvent: async function({ api, message }) {
-    const { body, threadID, messageID } = message;
-    if (!body) return;
-
-    // Trigger logic for no-prefix
-    if (body.toLowerCase().startsWith("song ")) {
-      const args = body.split(" ").slice(1);
-      return this.run({ api, message, args });
-    }
   },
 
   run: async function({ api, message, args }) {
@@ -50,7 +39,7 @@ module.exports = {
 
     try {
       // 1. Send searching status
-      const info = await api.sendMessage("✅Apki Request Jari Hai Please wait...", threadID, messageID);
+      const info = await api.sendMessage("🔍 Searching for your song, please wait...", threadID, messageID);
       searchMsgID = info.messageID;
 
       let videoUrl = query;
@@ -96,17 +85,18 @@ module.exports = {
       const successText = `🖤 Title: ${songData.title || title}\n\n━━━━━━━━━━━━━\n✨ »»𝑶𝑾𝑵𝑬𝑹««★™ »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉SONG`;
       await api.sendMessage(successText, threadID);
 
-      // 7. Send Audio File Automatically
+      // 7. Send Audio File (Send once, no extra replies)
       return api.sendMessage({
         attachment: fs.createReadStream(tempPath)
       }, threadID, () => {
+        // Cleanup file after sending
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
       });
 
     } catch (error) {
-      global.logger.error(`Error in song command: ${error.message}`);
       if (searchMsgID) api.unsendMessage(searchMsgID);
       if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      global.logger.error(`Error in song command: ${error.message}`);
       return api.sendMessage("⚠️ Server is not responding!", threadID, messageID);
     }
   }
