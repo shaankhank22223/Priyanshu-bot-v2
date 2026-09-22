@@ -59,7 +59,7 @@ module.exports = {
 
       msg += "👉 Reply with the number to download video.";
 
-      api.sendMessage(
+      return api.sendMessage(
         {
           body: msg,
           attachment: attachments,
@@ -81,6 +81,7 @@ module.exports = {
           });
           global.client.replies.set(threadID, replies);
 
+          // Cleanup thumbnails
           setTimeout(() => {
             thumbnailPaths.forEach(p => {
               if (fs.existsSync(p)) fs.unlinkSync(p);
@@ -114,6 +115,7 @@ module.exports = {
       return api.sendMessage("❌ API key not found in config.", threadID, messageID);
     }
 
+    // Unsend the previous list message to keep chat clean
     if (replyData.messageIDToDelete) {
       api.unsendMessage(replyData.messageIDToDelete);
     }
@@ -138,20 +140,20 @@ module.exports = {
       );
 
       if (!response.data || !response.data.success || !response.data.data) {
-        api.unsendMessage(processingMsg.messageID);
+        if (processingMsg) api.unsendMessage(processingMsg.messageID);
         return api.sendMessage("❌ Failed to fetch video download link.", threadID, messageID);
       }
 
       const { downloadUrl, title } = response.data.data;
       let finalTitle = title && title !== "YouTube Video" ? title : video.title;
 
-      // Size Check
+      // Size Check (FCA limits are usually 25MB-50MB depending on version)
       try {
         const headResponse = await axios.head(downloadUrl);
         const contentLength = headResponse.headers["content-length"];
-        if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
-          api.unsendMessage(processingMsg.messageID);
-          return api.sendMessage("❌ Video size exceeds the 50MB limit.", threadID, messageID);
+        if (contentLength && parseInt(contentLength) > 48 * 1024 * 1024) {
+          if (processingMsg) api.unsendMessage(processingMsg.messageID);
+          return api.sendMessage("❌ Video size exceeds the limit (max 48MB for stability).", threadID, messageID);
         }
       } catch (e) {
         console.error("Size check error:", e);
@@ -160,9 +162,10 @@ module.exports = {
       const cacheDir = path.join(__dirname, "cache");
       if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 
-      const safeFilename = `${Date.now()}.mp4`;
+      const safeFilename = `video_${Date.now()}.mp4`;
       const filePath = path.join(cacheDir, safeFilename);
 
+      // Robust streaming download
       const writer = fs.createWriteStream(filePath);
       const downloadResponse = await axios({
         method: "GET",
@@ -173,46 +176,44 @@ module.exports = {
       downloadResponse.data.pipe(writer);
 
       writer.on("finish", () => {
-        fs.stat(filePath, (err, stats) => {
-          if (err || stats.size === 0) {
-            api.unsendMessage(processingMsg.messageID);
-            api.sendMessage("❌ Download failed. Please try again.", threadID, messageID);
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-            return;
-          }
+        // Double check file existence and size for FCA stability
+        if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
+          if (processingMsg) api.unsendMessage(processingMsg.messageID);
+          return api.sendMessage("❌ File download failed.", threadID, messageID);
+        }
 
-          api.unsendMessage(processingMsg.messageID);
+        if (processingMsg) api.unsendMessage(processingMsg.messageID);
           
-          const finalBody = `🎬 Title: ${finalTitle}\n` +
-            `⏱️ Duration: ${video.timestamp}\n` +
-            `👤 Artist: ${video.author.name}\n` +
-            `👀 Views: ${video.views}\n\n` +
-            `»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰 👉 MUSIC-VIDEO`;
+        const finalBody = `🎬 Title: ${finalTitle}\n` +
+          `⏱️ Duration: ${video.timestamp}\n` +
+          `👤 Artist: ${video.author.name}\n` +
+          `👀 Views: ${video.views}\n\n` +
+          `»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰 👉 MUSIC-VIDEO`;
 
-          api.sendMessage(
-            {
-              body: finalBody,
-              attachment: fs.createReadStream(filePath),
-            },
-            threadID,
-            () => {
-              if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-            },
-            messageID
-          );
-        });
+        api.sendMessage(
+          {
+            body: finalBody,
+            attachment: fs.createReadStream(filePath),
+          },
+          threadID,
+          (err) => {
+            if (err) global.logger.error("Error sending video: " + err.message);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          },
+          messageID
+        );
       });
 
       writer.on("error", (err) => {
-        api.unsendMessage(processingMsg.messageID);
-        api.sendMessage("❌ File processing error.", threadID, messageID);
+        if (processingMsg) api.unsendMessage(processingMsg.messageID);
+        api.sendMessage("❌ Stream processing error.", threadID, messageID);
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       });
 
     } catch (error) {
-      console.error("Error in handleReply video:", error);
-      api.unsendMessage(processingMsg.messageID);
-      api.sendMessage("❌ An error occurred during the video download process.", threadID, messageID);
+      if (processingMsg) api.unsendMessage(processingMsg.messageID);
+      global.logger.error(`Error in handleReply: ${error.message}`);
+      return api.sendMessage("❌ An error occurred during processing.", threadID, messageID);
     }
   }
 };
