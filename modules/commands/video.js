@@ -8,7 +8,7 @@ module.exports = {
     name: "video",
     aliases: ["vdo", "mp4", "directvideo"],
     version: "1.0.0",
-    description: "Search and download video directly from YouTube",
+    description: "Search and download video directly from YouTube with dynamic title",
     usage: "{prefix}video [video name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: true,
@@ -41,6 +41,7 @@ module.exports = {
 
       const video = searchResults.videos[0]; 
       const videoUrl = video.url;
+      const videoTitle = video.title; // Capture the real title
       const apiKey = global.config.apiKeys?.priyanshuApi;
 
       if (!apiKey) {
@@ -109,7 +110,8 @@ module.exports = {
         // 5. Send the Video
         if (processingMsg) api.unsendMessage(processingMsg.messageID);
 
-        const finalBody = `🎬 YouTube video sand kar raha\n` +
+        // Updated Body to include the official video title
+        const finalBody = `🎬 Title: ${videoTitle}\n` +
           `⏱️ Duration: ${video.timestamp}\n` +
           `👤 Artist: ${video.author.name}\n` +
           `👀 Views: ${video.views}\n\n` +
@@ -144,6 +146,7 @@ module.exports = {
     } catch (error) {
       if (processingMsg) api.unsendMessage(processingMsg.messageID);
       global.logger.error(`Error in video command: ${error.message}`);
+      api.setMessageReaction("❌", messageID, (e) => {}, true);
       return api.sendMessage("❌ An error occurred while processing your request.", threadID, messageID);
     }
   }
