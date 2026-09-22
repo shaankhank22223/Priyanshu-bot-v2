@@ -34,8 +34,14 @@ module.exports = {
       return api.sendMessage("❌ Please provide a song name or YouTube link!", threadID, messageID);
     }
 
+    // Ensure cache directory exists
+    const cacheDir = path.join(__dirname, "cache");
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+    }
+
+    const tempPath = path.join(cacheDir, `song_${Date.now()}.mp3`);
     let searchMsgID;
-    const tempPath = path.join(__dirname, "cache", `song_${Date.now()}.mp3`);
 
     try {
       // 1. Send searching status
@@ -43,35 +49,42 @@ module.exports = {
       searchMsgID = info.messageID;
 
       let videoUrl = query;
-      let title = "song";
+      let songTitle = "Music";
 
-      // 2. YouTube Search Logic
+      // 2. YouTube Search Logic (if input is not a direct URL)
       if (!getVideoID(query)) {
         const searchResponse = await axios.get(YT_SEARCH, { params: { q: query } });
-        const video = searchResponse.data?.result?.[0] || searchResponse.data?.result?.items?.[0];
+        const video = searchResponse.data?.result?.[0] || searchResponse.data?.result?.items?.[0] || searchResponse.data?.data?.[0];
         
         if (!video) {
           if (searchMsgID) api.unsendMessage(searchMsgID);
           return api.sendMessage("❌ No results found for your query.", threadID, messageID);
         }
-        videoUrl = video.url;
-        title = video.title || "audio";
+        videoUrl = video.url || `https://www.youtube.com/watch?v=${video.id}`;
+        songTitle = video.title || "audio";
       }
 
-      // 3. Get Download Link
+      // 3. Get Download Link from API
+      // Using POST as per your API requirements
       const downloadResponse = await axios.post(AUDIO_API, { url: videoUrl });
-      const songData = downloadResponse.data?.result || downloadResponse.data;
-      const downloadLink = songData.download_url || songData.video || songData.url;
+      const songData = downloadResponse.data?.result || downloadResponse.data?.data || downloadResponse.data;
+      
+      const downloadLink = songData.download_url || songData.video || songData.url || songData.link;
 
       if (!downloadLink) {
         if (searchMsgID) api.unsendMessage(searchMsgID);
-        return api.sendMessage("⚠️ Could not generate a download link.", threadID, messageID);
+        return api.sendMessage("⚠️ Could not generate a download link. The API might be down.", threadID, messageID);
       }
 
-      // 4. Download to local cache
+      // 4. Download file to local cache
+      const response = await axios({
+        method: 'get',
+        url: downloadLink,
+        responseType: 'stream'
+      });
+
       const writer = fs.createWriteStream(tempPath);
-      const stream = await axios.get(downloadLink, { responseType: "stream" });
-      stream.data.pipe(writer);
+      response.data.pipe(writer);
 
       await new Promise((resolve, reject) => {
         writer.on("finish", resolve);
@@ -81,23 +94,26 @@ module.exports = {
       // 5. Remove "searching" message
       if (searchMsgID) api.unsendMessage(searchMsgID);
 
-      // 6. Send Title First (As requested)
-      const successText = `🖤 Title: ${songData.title || title}\n\n━━━━━━━━━━━━━\n✨ »»𝑶𝑾𝑵𝑬𝑹««★™ »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉SONG`;
+      // 6. Send Title and Credits first
+      const finalTitle = songData.title || songTitle;
+      const successText = `🖤 Title: ${finalTitle}\n\n━━━━━━━━━━━━━\n✨ »»𝑶𝑾𝑵𝑬𝑹««★™ »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉SONG`;
+      
       await api.sendMessage(successText, threadID);
 
-      // 7. Send Audio File (Send once, no extra replies)
+      // 7. Send the Audio File
       return api.sendMessage({
         attachment: fs.createReadStream(tempPath)
       }, threadID, () => {
-        // Cleanup file after sending
+        // Cleanup: Delete file after sending
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
       });
 
     } catch (error) {
       if (searchMsgID) api.unsendMessage(searchMsgID);
       if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-      global.logger.error(`Error in song command: ${error.message}`);
-      return api.sendMessage("⚠️ Server is not responding!", threadID, messageID);
+      
+      console.error(error);
+      return api.sendMessage(`⚠️ Error: ${error.message || "Server is not responding!"}`, threadID, messageID);
     }
   }
 };
