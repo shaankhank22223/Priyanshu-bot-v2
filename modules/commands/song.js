@@ -3,108 +3,107 @@ const path = require("path");
 const axios = require("axios");
 const ytSearch = require("yt-search");
 
-module.exports.config = {
-    name: "song",
-    aliases: ["songs"],
+module.exports = {
+  config: {
+    name: "video",
+    aliases: ["vdo", "mp4"],
     version: "1.0.0",
-    hasPrefix: true,
-    permission: 'PUBLIC',
+    description: "Search and download video from YouTube with details",
+    usage: "{prefix}video [video name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
-    description: "Search and download music from YouTube",
-    category: "MEDIA",
-    usages: "[song name]",
+    hasPrefix: true,
+    permission: "PUBLIC",
     cooldown: 5,
-};
+    category: "MEDIA"
+  },
 
-module.exports.run = async function ({ api, message, args }) {
+  run: async function ({ api, message, args }) {
     const { threadID, messageID, senderID } = message;
     const input = args.join(" ");
 
     if (!input) {
-        return api.sendMessage("❌ Please enter a song name.", threadID, messageID);
+      return api.sendMessage("❌ Please enter a video name.", threadID, messageID);
     }
 
     try {
-        // Removed "Searching..." message as requested
+      const searchResults = await ytSearch(input);
+      if (!searchResults || !searchResults.videos.length) {
+        return api.sendMessage("❌ No results found.", threadID, messageID);
+      }
 
-        const searchResults = await ytSearch(input);
-        if (!searchResults || !searchResults.videos.length) {
-            return api.sendMessage("❌ No results found.", threadID, messageID);
+      const results = searchResults.videos.slice(0, 6);
+      const cacheDir = path.join(__dirname, "cache");
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+      let msg = "🎬 Top 6 Video Results:\n\n";
+      const attachments = [];
+      const thumbnailPaths = [];
+
+      for (let i = 0; i < results.length; i++) {
+        const video = results[i];
+        const thumbURL = video.thumbnail;
+        const thumbPath = path.join(cacheDir, `thumb-${video.videoId}-${Date.now()}.jpg`);
+
+        try {
+          const thumbData = await axios.get(thumbURL, { responseType: "arraybuffer" });
+          fs.writeFileSync(thumbPath, thumbData.data);
+          attachments.push(fs.createReadStream(thumbPath));
+          thumbnailPaths.push(thumbPath);
+        } catch (e) {
+          console.error("Error downloading thumbnail:", e);
         }
 
-        const results = searchResults.videos.slice(0, 6);
-        const thumbDir = path.join(__dirname, "temp");
-        if (!fs.existsSync(thumbDir)) fs.mkdirSync(thumbDir, { recursive: true });
+        msg += `${i + 1}. ${video.title}\n`;
+        msg += `⏱️ Duration: ${video.timestamp} | 👀 Views: ${video.views}\n\n`;
+      }
 
-        let msg = "🎧 Top 6 results:\n\n";
-        const attachments = [];
-        const thumbnailPaths = [];
+      msg += "👉 Reply with the number to download video.";
 
-        for (let i = 0; i < results.length; i++) {
-            const video = results[i];
-            const thumbURL = video.thumbnail;
-            const thumbPath = path.join(thumbDir, `thumb-${video.videoId}-${Date.now()}.jpg`);
+      api.sendMessage(
+        {
+          body: msg,
+          attachment: attachments,
+        },
+        threadID,
+        (err, info) => {
+          if (err) return console.error("Send failed:", err);
 
-            try {
-                const thumbData = await axios.get(thumbURL, { responseType: "arraybuffer" });
-                fs.writeFileSync(thumbPath, thumbData.data);
-                attachments.push(fs.createReadStream(thumbPath));
-                thumbnailPaths.push(thumbPath);
-            } catch (e) {
-                console.error("Error downloading thumbnail:", e);
+          const replies = global.client.replies.get(threadID) || [];
+          replies.push({
+            command: this.config.name,
+            messageID: info.messageID,
+            expectedSender: senderID,
+            data: {
+              results,
+              messageIDToDelete: info.messageID,
+              thumbnailPaths
             }
+          });
+          global.client.replies.set(threadID, replies);
 
-            msg += `${i + 1}. ${video.title} (${video.timestamp})\n`;
-            msg += `📻 ${video.author.name} | 👁 ${video.views}\n\n`;
-        }
-
-        msg += "👉 Reply with the number to download.";
-
-        api.sendMessage(
-            {
-                body: msg,
-                attachment: attachments,
-            },
-            threadID,
-            (err, info) => {
-                if (err) return console.error("Send failed:", err);
-
-                global.client.replies.set(threadID, [
-                    ...(global.client.replies.get(threadID) || []),
-                    {
-                        command: this.config.name,
-                        messageID: info.messageID,
-                        expectedSender: senderID,
-                        data: {
-                            results,
-                            messageIDToDelete: info.messageID,
-                            thumbnailPaths
-                        }
-                    }
-                ]);
-
-                // Cleanup thumbnails after sending (give some time for the message to be sent)
-                setTimeout(() => {
-                    thumbnailPaths.forEach(p => {
-                        if (fs.existsSync(p)) fs.unlink(p, () => { });
-                    });
-                }, 60 * 1000);
-            },
-            messageID
-        );
+          setTimeout(() => {
+            thumbnailPaths.forEach(p => {
+              if (fs.existsSync(p)) fs.unlinkSync(p);
+            });
+          }, 60000);
+        },
+        messageID
+      );
 
     } catch (error) {
-        console.error("Error in songv2 command:", error);
-        api.sendMessage("❌ An error occurred.", threadID, messageID);
+      global.logger.error(`Error in video command: ${error.message}`);
+      return api.sendMessage("❌ An error occurred while searching.", threadID, messageID);
     }
-};
+  },
 
-module.exports.handleReply = async function ({ api, message, replyData }) {
-    const { threadID, messageID, body } = message;
+  handleReply: async function ({ api, message, replyData }) {
+    const { threadID, messageID, body, senderID } = message;
+    
+    if (senderID !== replyData.expectedSender) return;
+
     const index = parseInt(body.trim());
-
     if (!replyData.results || isNaN(index) || index < 1 || index > replyData.results.length) {
-        return api.sendMessage("❌ Please reply with a valid number.", threadID, messageID);
+      return api.sendMessage("❌ Please reply with a valid number (1-6).", threadID, messageID);
     }
 
     const video = replyData.results[index - 1];
@@ -112,131 +111,108 @@ module.exports.handleReply = async function ({ api, message, replyData }) {
     const apiKey = global.config.apiKeys?.priyanshuApi;
 
     if (!apiKey) {
-        return api.sendMessage("❌ API key not found in config.", threadID, messageID);
+      return api.sendMessage("❌ API key not found in config.", threadID, messageID);
     }
 
-    // Unsend the list message
     if (replyData.messageIDToDelete) {
-        api.unsendMessage(replyData.messageIDToDelete);
+      api.unsendMessage(replyData.messageIDToDelete);
     }
 
-    const processingMsg = await api.sendMessage(`⏳ Processing: ${video.title}...`, threadID, messageID);
+    const processingMsg = await api.sendMessage(`⏳ Generating video for: ${video.title}...`, threadID, messageID);
 
     try {
-        // Call the API
-        const apiUrl = "https://priyanshuapi.qzz.io/api/runner/youtube-downloader-v2/download";
-        const response = await axios.post(
-            apiUrl,
+      const apiUrl = "https://priyanshuapi.qzz.io/api/runner/youtube-downloader-v2/download";
+      const response = await axios.post(
+        apiUrl,
+        {
+          link: videoUrl,
+          format: "mp4",
+          videoQuality: "360",
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.data || !response.data.success || !response.data.data) {
+        api.unsendMessage(processingMsg.messageID);
+        return api.sendMessage("❌ Failed to fetch video download link.", threadID, messageID);
+      }
+
+      const { downloadUrl, title } = response.data.data;
+      let finalTitle = title && title !== "YouTube Video" ? title : video.title;
+
+      // Size Check
+      try {
+        const headResponse = await axios.head(downloadUrl);
+        const contentLength = headResponse.headers["content-length"];
+        if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
+          api.unsendMessage(processingMsg.messageID);
+          return api.sendMessage("❌ Video size exceeds the 50MB limit.", threadID, messageID);
+        }
+      } catch (e) {
+        console.error("Size check error:", e);
+      }
+
+      const cacheDir = path.join(__dirname, "cache");
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+      const safeFilename = `${Date.now()}.mp4`;
+      const filePath = path.join(cacheDir, safeFilename);
+
+      const writer = fs.createWriteStream(filePath);
+      const downloadResponse = await axios({
+        method: "GET",
+        url: downloadUrl,
+        responseType: "stream",
+      });
+
+      downloadResponse.data.pipe(writer);
+
+      writer.on("finish", () => {
+        fs.stat(filePath, (err, stats) => {
+          if (err || stats.size === 0) {
+            api.unsendMessage(processingMsg.messageID);
+            api.sendMessage("❌ Download failed. Please try again.", threadID, messageID);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            return;
+          }
+
+          api.unsendMessage(processingMsg.messageID);
+          
+          const finalBody = `🎬 Title: ${finalTitle}\n` +
+            `⏱️ Duration: ${video.timestamp}\n` +
+            `👤 Artist: ${video.author.name}\n` +
+            `👀 Views: ${video.views}\n\n` +
+            `»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰 👉 MUSIC-VIDEO`;
+
+          api.sendMessage(
             {
-                link: videoUrl,
-                format: "mp3",
-                videoQuality: "360",
+              body: finalBody,
+              attachment: fs.createReadStream(filePath),
             },
-            {
-                headers: {
-                    Authorization: `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                },
-            }
-        );
-
-        if (!response.data || !response.data.success || !response.data.data) {
-            api.unsendMessage(processingMsg.messageID);
-            return api.sendMessage("❌ Failed to generate download link.", threadID, messageID);
-        }
-
-        const { downloadUrl, title, filename } = response.data.data;
-        // Use video.title from search result as primary if API title is generic "YouTube Video"
-        let finalTitle = title;
-        if (!finalTitle || finalTitle === "YouTube Video" || finalTitle === "Unknown Title") {
-            finalTitle = video.title;
-        }
-
-        // Check file size
-        try {
-            const headResponse = await axios.head(downloadUrl);
-            const contentLength = headResponse.headers["content-length"];
-            if (contentLength && parseInt(contentLength) > 30 * 1024 * 1024) {
-                api.unsendMessage(processingMsg.messageID);
-                return api.sendMessage("❌ File size exceeds 30MB limit.", threadID, messageID);
-            }
-        } catch (headError) {
-            console.error("Error checking file size:", headError);
-        }
-
-        // Format views
-        const formattedViews = video.views ? new Intl.NumberFormat('en-US', { notation: "compact", compactDisplay: "short" }).format(video.views) : "N/A";
-
-        // Send info message
-        let infoMsg = `🎵 Title: ${finalTitle}\n`;
-        if (video.timestamp) infoMsg += `⏱ Duration: ${video.timestamp}\n`;
-        if (video.author && video.author.name) infoMsg += `👤 Artist: ${video.author.name}\n`;
-        if (video.views) infoMsg += `👀 Views: ${formattedViews}\n`;
-        if (video.ago) infoMsg += `📅 Uploaded: ${video.ago}\n`;
-        infoMsg += `🔗 Source: ${videoUrl}\n`;
-        infoMsg += `📥 Download Link: ${downloadUrl}\n`;
-        infoMsg += `⏳ Downloading...`;
-
-        api.sendMessage(infoMsg, threadID, () => {
-            api.unsendMessage(processingMsg.messageID);
+            threadID,
+            () => {
+              if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            },
+            messageID
+          );
         });
+      });
 
-        // Download file
-        const tempDir = path.join(__dirname, "temp");
-        if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
-        }
-
-        const safeFilename = (filename || `${Date.now()}.mp3`).replace(/[^a-zA-Z0-9.-]/g, "_");
-        const filePath = path.join(tempDir, safeFilename);
-
-        const writer = fs.createWriteStream(filePath);
-        const downloadResponse = await axios({
-            method: "GET",
-            url: downloadUrl,
-            responseType: "stream",
-        });
-
-        downloadResponse.data.pipe(writer);
-
-        writer.on("finish", () => {
-            // Verify file is not empty before sending
-            fs.stat(filePath, (statErr, stats) => {
-                if (statErr || !stats || stats.size === 0) {
-                    console.error("[song] Temp file is empty or unreadable, skipping send:", filePath, statErr);
-                    api.sendMessage("❌ Download failed (empty file). Please try again.", threadID, messageID);
-                    return fs.unlink(filePath, () => { });
-                }
-
-                // Send the file
-                api.sendMessage(
-                    {
-                        body: `🎧 ${finalTitle}`,
-                        attachment: fs.createReadStream(filePath),
-                    },
-                    threadID,
-                    (err) => {
-                        if (err) {
-                            console.error("Error sending file:", err);
-                            api.sendMessage("❌ Failed to send audio file.", threadID, messageID);
-                        }
-                        // Delete file after sending
-                        fs.unlink(filePath, (unlinkErr) => {
-                            if (unlinkErr) console.error("Error deleting temp file:", unlinkErr);
-                        });
-                    }
-                );
-            });
-        });
-
-        writer.on("error", (err) => {
-            console.error("Error downloading file:", err);
-            api.sendMessage("❌ Failed to download the file.", threadID, messageID);
-            fs.unlink(filePath, () => { });
-        });
+      writer.on("error", (err) => {
+        api.unsendMessage(processingMsg.messageID);
+        api.sendMessage("❌ File processing error.", threadID, messageID);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      });
 
     } catch (error) {
-        console.error("Error in songv2 command:", error);
-        api.sendMessage("❌ An error occurred.", threadID, messageID);
+      console.error("Error in handleReply video:", error);
+      api.unsendMessage(processingMsg.messageID);
+      api.sendMessage("❌ An error occurred during the video download process.", threadID, messageID);
     }
+  }
 };
