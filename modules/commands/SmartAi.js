@@ -5,7 +5,7 @@ const path = require("path");
 
 // API Configuration
 const AI_API_URL = "https://priyanshuapi.qzz.io/api/runner/lite-ai/chat";
-const PRIYANSHU_API_KEY = "apim_woYjgHP57d44pyaII3LzkGZ5kSK-3tE-H0QYlWmEqDE";
+const PRIYANSHU_API_KEY = "apim_cu4BU2vwJw9bWIEC1-W34ijkMVgNsB5veCDEeW3a9Bs";
 const OWNER_TAG = "»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««";
 const OWNER_UID = "100016828397863";
 
