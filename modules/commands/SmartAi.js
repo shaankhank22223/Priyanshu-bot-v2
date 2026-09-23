@@ -20,12 +20,12 @@ Behavioral Rules:
 module.exports = {
   config: {
     name: "muskan",
-    aliases: ["musi", "bot", "ai"],
+    aliases: ["bot", "ai", "musi"],
     version: "1.0.0",
-    description: "Muskan AI + YouTube Downloader with Auto-Reply",
-    usage: "{prefix}muskan [message/song name]",
+    description: "Muskan AI No-Prefix - No handleEvent (Double reply fixed)",
+    usage: "muskan [message/song name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
-    hasPrefix: true,
+    hasPrefix: false, // Ab # lagane ki zaroorat nahi hai
     permission: "PUBLIC",
     cooldown: 5,
     category: "AI"
@@ -33,13 +33,17 @@ module.exports = {
 
   run: async function ({ api, message, args }) {
     const { threadID, messageID, senderID } = message;
+    
+    // Query wo hai jo command name ke baad likha gaya hai
     let query = args.join(" ").trim();
 
+    // Jab user sirf "muskan" ya "bot" likhe bina kisi sawal ke
     if (!query) {
       return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
     }
 
     try {
+      // Check if it's a video/audio request
       const isVideoReq = /\b(video|vdo|mp4|film|movie)\b/i.test(query);
       const isAudioReq = /\b(song|music|audio|mp3|play|gaana|gane|ghana)\b/i.test(query);
       const isUrl = /(youtube\.com|youtu\.be)/i.test(query);
@@ -51,7 +55,7 @@ module.exports = {
         let searchQuery = query.replace(/video|vdo|mp4|song|music|audio|mp3|play|gaana|gane|ghana/gi, "").trim();
         if (isUrl) searchQuery = query;
 
-        const searchResult = await yts(searchQuery);
+        const searchResult = await yts(searchQuery || "new song");
         if (!searchResult || !searchResult.videos.length) {
           api.setMessageReaction("❌", messageID, () => {}, true);
           return api.sendMessage("Maafi, ye video ya song nahi mila 🥺💔", threadID, messageID);
@@ -72,7 +76,6 @@ module.exports = {
         const downloadUrl = dlResponse.data?.data?.downloadUrl;
         if (!downloadUrl) return api.sendMessage("Download link nahi mil paaya 🥺", threadID, messageID);
 
-        // Ensure cache directory exists
         const cacheDir = path.join(__dirname, "cache");
         if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 
@@ -109,27 +112,6 @@ module.exports = {
       console.error(error);
       api.setMessageReaction("❌", messageID, () => {}, true);
       return api.sendMessage("Server busy hai, thodi der baad try karo! 🥺", threadID, messageID);
-    }
-  },
-
-  handleEvent: async function ({ api, message }) {
-    const { threadID, messageID, body, senderID, messageReply } = message;
-    if (!body || senderID == api.getCurrentUserID()) return;
-
-    const input = body.toLowerCase();
-    const prefix = global.config.prefix;
-
-    // Agar message prefix se start ho raha hai toh handleEvent execute nahi hoga (taaki double reply na ho)
-    if (body.startsWith(prefix)) return;
-
-    // Trigger Keywords
-    const triggers = ["muskan", "janu", "shaan"];
-    const isTriggered = triggers.some(t => input.includes(t));
-
-    // Agar trigger milta hai aur reply nahi hai (direct message)
-    if (isTriggered && (!messageReply || messageReply.senderID != api.getCurrentUserID())) {
-        const args = body.split(/\s+/);
-        return this.run({ api, message, args });
     }
   }
 };
