@@ -24,7 +24,7 @@ module.exports = {
     version: "1.0.0",
     description: "Muskan AI + YouTube Downloader with Auto-Reply",
     usage: "{prefix}muskan [message/song name]",
-    credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝒂𝒋𝒑𝒖𝒕",
+    credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: true,
     permission: "PUBLIC",
     cooldown: 5,
