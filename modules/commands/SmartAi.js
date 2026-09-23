@@ -35,7 +35,6 @@ module.exports = {
     const { threadID, messageID, senderID } = message;
     let query = args.join(" ").trim();
 
-    // Check if triggered via prefix but no message
     if (!query) {
       return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
     }
@@ -100,13 +99,15 @@ module.exports = {
 
       let reply = res.data?.data?.choices?.[0]?.message?.content || "Hmmm... 🥺";
       
-      // Send AI response and register for continuous conversation
       return api.sendMessage(reply, threadID, (err, info) => {
-        global.client.replies.set(info.messageID, {
-          commandName: this.config.name,
+        if (err) return;
+        const replies = global.client.replies.get(threadID) || [];
+        replies.push({
+          command: this.config.name,
           messageID: info.messageID,
-          senderID: senderID
+          expectedSender: senderID
         });
+        global.client.replies.set(threadID, replies);
       }, messageID);
 
     } catch (error) {
@@ -115,9 +116,11 @@ module.exports = {
     }
   },
 
-  handleReply: async function ({ api, message, handleReply }) {
-    if (handleReply.senderID !== message.senderID) return;
-    const { body } = message;
+  handleReply: async function ({ api, message, replyData }) {
+    const { body, senderID } = message;
+    if (replyData.expectedSender !== senderID) return;
+    
+    // Call run directly with the reply text
     return this.run({ api, message, args: body.split(/\s+/) });
   },
 
@@ -126,28 +129,20 @@ module.exports = {
     if (!body || senderID == api.getCurrentUserID()) return;
 
     const input = body.toLowerCase();
-    const prefix = (global.config && global.config.prefix) || "#";
+    const prefix = global.config.prefix;
 
-    // 1. Double reply fix: Agar message prefix se start ho raha hai, toh handleEvent ko rok do (kyunki run() trigger ho jayega)
-    if (input.startsWith(prefix + this.config.name)) return;
+    // 1. Agar message prefix se start ho raha hai, toh handleEvent kuch nahi karega (run trigger hone do)
+    if (body.startsWith(prefix)) return;
 
-    // 2. Trigger keywords: muskan, ai, bot, janu
-    const triggers = ["muskan", "ai ", "bot ", "janu "];
-    const isTriggered = triggers.some(t => input.startsWith(t));
+    // 2. Agar ye bot ke message ka reply hai, toh handleReply handle karega, handleEvent ko ignore karne do
+    if (messageReply && messageReply.senderID == api.getCurrentUserID()) return;
 
-    // 3. Trigger on reply: Agar koi bot ke message par reply kare (jispe handleReply set na ho)
-    const isBotReply = messageReply && messageReply.senderID == api.getCurrentUserID();
+    // 3. Keywords trigger logic (Sirf tab jab prefix na ho aur reply na ho)
+    const triggers = ["muskan", "janu", "shaan"]; 
+    const isTriggered = triggers.some(t => input.includes(t));
 
-    if (isTriggered || isBotReply) {
-      let cleanQuery = body;
-      // Remove trigger word from start for cleaner AI prompt
-      triggers.forEach(t => {
-        if (input.startsWith(t)) cleanQuery = body.substring(t.length).trim();
-      });
-
-      if (!cleanQuery && isTriggered) return; // Don't reply to just "ai" or "bot"
-
-      return this.run({ api, message, args: cleanQuery.split(/\s+/) });
+    if (isTriggered) {
+      return this.run({ api, message, args: body.split(/\s+/) });
     }
   }
 };
