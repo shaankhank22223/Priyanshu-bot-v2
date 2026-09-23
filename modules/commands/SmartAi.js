@@ -22,10 +22,10 @@ module.exports = {
     name: "muskan",
     aliases: ["bot", "ai", "musi"],
     version: "1.0.0",
-    description: "Muskan AI No-Prefix - No handleEvent (Double reply fixed)",
+    description: "Muskan AI with Continuous Chat - No handleEvent",
     usage: "muskan [message/song name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
-    hasPrefix: false, // Ab # lagane ki zaroorat nahi hai
+    hasPrefix: false,
     permission: "PUBLIC",
     cooldown: 5,
     category: "AI"
@@ -33,25 +33,35 @@ module.exports = {
 
   run: async function ({ api, message, args }) {
     const { threadID, messageID, senderID } = message;
-    
-    // Query wo hai jo command name ke baad likha gaya hai
     let query = args.join(" ").trim();
 
-    // Jab user sirf "muskan" ya "bot" likhe bina kisi sawal ke
     if (!query) {
       return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
     }
 
+    return await this.handleLogic({ api, message, query });
+  },
+
+  handleReply: async function ({ api, message, replyData }) {
+    const { body, threadID, messageID } = message;
+    
+    // Agar reply mein koi kuch puchta hai
+    if (!body) return;
+    
+    return await this.handleLogic({ api, message, query: body });
+  },
+
+  handleLogic: async function ({ api, message, query }) {
+    const { threadID, messageID, senderID } = message;
+
     try {
-      // Check if it's a video/audio request
+      // --- MEDIA DOWNLOADER LOGIC ---
       const isVideoReq = /\b(video|vdo|mp4|film|movie)\b/i.test(query);
       const isAudioReq = /\b(song|music|audio|mp3|play|gaana|gane|ghana)\b/i.test(query);
       const isUrl = /(youtube\.com|youtu\.be)/i.test(query);
 
-      // --- MEDIA DOWNLOADER LOGIC ---
       if (isVideoReq || isAudioReq || isUrl) {
         api.setMessageReaction("⌛", messageID, () => {}, true);
-
         let searchQuery = query.replace(/video|vdo|mp4|song|music|audio|mp3|play|gaana|gane|ghana/gi, "").trim();
         if (isUrl) searchQuery = query;
 
@@ -74,17 +84,16 @@ module.exports = {
         });
 
         const downloadUrl = dlResponse.data?.data?.downloadUrl;
-        if (!downloadUrl) return api.sendMessage("Download link nahi mil paaya 🥺", threadID, messageID);
+        if (!downloadUrl) throw new Error("No download link");
 
-        const cacheDir = path.join(__dirname, "cache");
-        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+        const cachePath = path.join(__dirname, "cache", `muskan_${Date.now()}.${format}`);
+        if (!fs.existsSync(path.join(__dirname, "cache"))) fs.mkdirSync(path.join(__dirname, "cache"));
 
-        const cachePath = path.join(cacheDir, `muskan_${Date.now()}.${format}`);
         const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n🥀 𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${format.toUpperCase()}`;
 
+        const response = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(cachePath);
-        const stream = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream' });
-        stream.data.pipe(writer);
+        response.data.pipe(writer);
 
         writer.on("finish", () => {
           api.setMessageReaction("✅", messageID, () => {}, true);
@@ -97,21 +106,37 @@ module.exports = {
 
       // --- AI CHAT LOGIC ---
       api.sendTypingIndicator(threadID);
+      
       const res = await axios.post(AI_API_URL, {
         uid: String(senderID),
         prompt: query,
         systemPrompt: SYSTEM_PROMPT
       }, {
-        headers: { Authorization: `Bearer ${PRIYANSHU_API_KEY}`, "Content-Type": "application/json" }
+        headers: { 
+          'Authorization': `Bearer ${PRIYANSHU_API_KEY}`, 
+          'Content-Type': 'application/json' 
+        }
       });
 
-      let reply = res.data?.data?.choices?.[0]?.message?.content || "Hmmm... 🥺";
-      return api.sendMessage(reply, threadID, messageID);
+      const reply = res.data?.data?.choices?.[0]?.message?.content || "Hmmm... 🥺";
+
+      // Send message and register for continuous replies
+      return api.sendMessage(reply, threadID, (err, info) => {
+        if (err) return;
+        
+        const replies = global.client.replies.get(threadID) || [];
+        replies.push({
+          command: this.config.name,
+          messageID: info.messageID,
+          expectedSender: senderID
+        });
+        global.client.replies.set(threadID, replies);
+      }, messageID);
 
     } catch (error) {
-      console.error(error);
+      console.error("Muskan Error:", error.response?.data || error.message);
       api.setMessageReaction("❌", messageID, () => {}, true);
-      return api.sendMessage("Server busy hai, thodi der baad try karo! 🥺", threadID, messageID);
+      return api.sendMessage("Server thoda thak gaya hai, 1 minute baad try karo baby! 🥺", threadID, messageID);
     }
   }
 };
