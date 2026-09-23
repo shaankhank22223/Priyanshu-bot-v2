@@ -1,129 +1,264 @@
-const fs = require("fs");
-const path = require("path");
+/**
+ * Group Call Event
+ * Handles group call notifications
+ */
+
+// Thread model is accessed via global.Thread
 
 module.exports = {
   config: {
-    name: "adminupdate",
-    aliases: ["groupupdate", "log"],
-    version: "1.0.0",
-    description: "Group ki sabhi activities aur calls ko track karta hai",
-    usage: "Automated - No command needed",
-    credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
-    hasPrefix: false,
-    permission: "PUBLIC",
-    cooldown: 0,
-    category: "SYSTEM"
+    name: 'groupCall',
+    description: 'Handles group call notifications',
+    version: '1.0.0',
+    credit: '𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭'
   },
 
-  handleEvent: async function({ api, message }) {
-    const { threadID, logMessageType, logMessageData, logMessageBody, author } = message;
-    
-    // Bot ke apne actions ko ignore karein
-    if (!logMessageType || author == api.getCurrentUserID()) return;
-
-    const cacheDir = path.join(__dirname, "cache");
-    const iconPath = path.join(cacheDir, "emoji.json");
-
-    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-    if (!fs.existsSync(iconPath)) fs.writeFileSync(iconPath, JSON.stringify({}));
+  /**
+   * Event execution
+   * @param {Object} options - Options object
+   * @param {Object} options.api - Facebook API instance
+   * @param {Object} options.message - Message object
+   * @param {Object} options.logMessageData - Event data
+   */
+  run: async function({ api, message, logMessageData }) {
+    const { threadID, logMessageType } = message;
 
     try {
-      switch (logMessageType) {
-        // --- ADMIN UPDATES ---
-        case "log:thread-admins": {
-          if (logMessageData.ADMIN_EVENT == "add_admin") {
-            return api.sendMessage(`[⚜️] Breaking News [⚜️]\n» Dil Dehla Dene wali News: UID ${logMessageData.TARGET_ID} Ko Admin Bana Diya Gaya😒👈🏻`, threadID);
-          } else if (logMessageData.ADMIN_EVENT == "remove_admin") {
-            return api.sendMessage(`[⚜️] Breaking News [⚜️]\n• Bechare ko admin se remove Kardiya☹️ UID: ${logMessageData.TARGET_ID}`, threadID);
-          }
-          break;
-        }
+      // Debug log to see what's in the message and logMessageData
+      global.logger.debug(`Group call event data - message type: ${logMessageType}`);
+      global.logger.debug(`Group call event data - logMessageData: ${JSON.stringify(logMessageData)}`);
 
-        // --- NICKNAME UPDATES ---
-        case "log:user-nickname": {
-          const nickname = logMessageData.nickname;
-          const targetID = logMessageData.participant_id;
-          return api.sendMessage(`[⚜️] Update [⚜️]\n» ${(nickname.length == 0) ? `USER KA NAME REMOVE KAR DIYA GAYA: ${targetID}` : `NICKNAME UPDATE: ${targetID} -> ${nickname}`}.`, threadID);
-        }
+      // Skip if no call data
+      if (!logMessageData) return;
 
-        // --- GROUP NAME UPDATES ---
-        case "log:thread-name": {
-          const name = logMessageData.name || "None";
-          return api.sendMessage(`[⚜️] UPDATE GROUP NAME [⚜️]\n» ${(name !== "None") ? `NEW GROUP NAME: ${name}` : 'GROUP NAME REMOVE KAR DIYA GAYA'}.`, threadID);
-        }
+      // Check for joining_user in logMessageData (for participant joined events)
+      const joiningUser = logMessageData.joining_user || null;
+      if (joiningUser && joiningUser !== global.client.botID) {
+        // This is likely a user joining the call
+        global.logger.debug(`Detected user joining call: ${joiningUser}`);
 
-        // --- GROUP ICON/EMOJI UPDATES ---
-        case "log:thread-icon": {
-          let preIcon = JSON.parse(fs.readFileSync(iconPath));
-          const newIcon = logMessageData.thread_icon || "🤦🏻‍♂️";
-          api.sendMessage(`[⚜️] Aj ki Taaza Khabar [⚜️]\n» ${logMessageBody.replace("emoticon", "icon")}\n» Original Icon: ${preIcon[threadID] || "unclear"}`, threadID);
-          preIcon[threadID] = newIcon;
-          fs.writeFileSync(iconPath, JSON.stringify(preIcon));
-          break;
-        }
+        // Skip sending notification here to avoid duplication
+        // Notification will be handled by handleThreadCall function
 
-        // --- CALL UPDATES (AUDIO/VIDEO) ---
-        case "log:thread-call": {
-          const callType = logMessageData.video ? "VIDEO" : "AUDIO";
-          
-          // Call Started
-          if (logMessageData.event == "group_call_started") {
-            const userInfo = await api.getUserInfo(logMessageData.caller_id);
-            const name = userInfo[logMessageData.caller_id].name;
-            return api.sendMessage(`❯❯❯⭑ 𝐆𝐑𝐎𝐔𝐏 𝐔𝐏𝐃𝐀𝐓𝐄 ⭑❮❮❮\n᯽───────────────᯽\n👤 User: ${name}\n᯽───────────────᯽\n⭑｟ 𝐒𝐓𝐀𝐑𝐓𝐄𝐃 𝐀 ${callType} 𝐂𝐀𝐋𝐋 ｠⭑`, threadID);
-          } 
-          
-          // Participant Joined
-          else if (logMessageData.event == "group_call_participant_joined" || logMessageData.joining_user) {
-            const userID = logMessageData.joining_user || logMessageData.caller_id;
-            const userInfo = await api.getUserInfo(userID);
-            const name = userInfo[userID].name;
-            return api.sendMessage(`📞 [CALL JOIN] ${name} has joined the ${callType} call.`, threadID);
-          }
-          
-          // Call Ended
-          else if (logMessageData.event == "group_call_ended") {
-            const callDuration = logMessageData.call_duration;
-            let hours = Math.floor(callDuration / 3600);
-            let minutes = Math.floor((callDuration - (hours * 3600)) / 60);
-            let seconds = callDuration - (hours * 3600) - (minutes * 60);
-            const timeFormat = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-            return api.sendMessage(`❯❯❯⭑ 𝐆𝐑𝐎𝐔𝐏 𝐔𝐏𝐃𝐀𝐓𝐄 ⭑❮❮❮\n» ${callType} CALL ENDED.\n» DURATION: ${timeFormat}`, threadID);
-          }
-          break;
-        }
-
-        // --- THEME & MAGIC WORDS ---
-        case "log:magic-words": {
-          return api.sendMessage(`[⚜️] Theme ${logMessageData.magic_word} added effects: ${logMessageData.theme_name}\n[⚜️] Emoji: ${logMessageData.emoji_effect || "No emoji"}`, threadID);
-        }
-
-        // --- POLL UPDATES ---
-        case "log:thread-poll": {
-          return api.sendMessage(`[⚜️] Poll Update: ${logMessageBody}`, threadID);
-        }
-
-        // --- APPROVAL MODE ---
-        case "log:thread-approval-mode": {
-          return api.sendMessage(`[⚜️] Approval Mode: ${logMessageBody}`, threadID);
-        }
-
-        // --- COLOR/THEME UPDATES ---
-        case "log:thread-color": {
-          return api.sendMessage(`[⚜️] UPDATE GROUP COLOR [⚜️]\n» ${logMessageBody.replace("Topic", "color")}`, threadID);
-        }
+        // Continue with normal processing
       }
+
+      // Handle different event types
+      if (logMessageType === 'log:thread-call') {
+        // Handle thread-call event (new format)
+        return await this.handleThreadCall({ api, message, logMessageData, threadID });
+      }
+
+      // Get caller ID for log:call event (old format)
+      const callerID = logMessageData.caller_id || logMessageData.joining_user || 'unknown';
+
+      // Skip if caller is the bot
+      if (callerID === global.client.botID) return;
+
+      // Get call type (video or audio)
+      const isVideo = logMessageData.video;
+      const callType = isVideo ? 'video' : 'audio';
+
+      // Get caller info
+      let callerName = 'Someone';
+
+      try {
+        // Try to get name from Facebook
+        const userInfo = await new Promise((resolve, reject) => {
+          api.getUserInfo(callerID, (err, info) => {
+            if (err) return reject(err);
+            resolve(info[callerID]);
+          });
+        });
+
+        if (userInfo && userInfo.name) {
+          callerName = userInfo.name;
+        }
+      } catch (error) {
+        global.logger.error('Error getting caller info:', error.message);
+      }
+
+      // Check if call started or ended
+      if (logMessageData.event === 'group_call_started') {
+        // Call started
+        const message = `📞 ${callerName} started a ${callType} call in this group.`;
+        await global.api.sendMessage(message, threadID);
+      } else if (logMessageData.event === 'group_call_participant_joined') {
+        // Participant joined
+        const joinMessage = `📞 ${callerName} joined the ${callType} call.`;
+        await global.api.sendMessage(joinMessage, threadID);
+      } else if (logMessageData.event === 'group_call_ended') {
+        // Call ended
+        // Get call duration
+        let duration = 'unknown duration';
+
+        if (logMessageData.call_duration) {
+          const seconds = parseInt(logMessageData.call_duration);
+          if (seconds < 60) {
+            duration = `${seconds} seconds`;
+          } else {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            duration = `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+            if (remainingSeconds > 0) {
+              duration += ` ${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`;
+            }
+          }
+        }
+
+        // Get participants who were in the call
+        let participantNames = [];
+        if (logMessageData.missed_call_participant_ids) {
+          try {
+            // Parse the participant IDs from the string
+            const participantIds = JSON.parse(logMessageData.missed_call_participant_ids);
+
+            if (participantIds && participantIds.length > 0) {
+              // Get names of all participants
+              const userInfos = await new Promise((resolve, reject) => {
+                api.getUserInfo(participantIds, (err, info) => {
+                  if (err) return reject(err);
+                  resolve(info);
+                });
+              });
+
+              // Extract names
+              participantNames = participantIds.map(id => {
+                if (userInfos[id] && userInfos[id].name) {
+                  return userInfos[id].name;
+                }
+                return 'Unknown User';
+              });
+            }
+          } catch (error) {
+            global.logger.debug(`Could not get participant info: ${error.message}`);
+          }
+        }
+
+        // Don't show participants list as per user request
+        const message = `📞 The ${callType} call started by ${callerName} has ended.\nDuration: ${duration}`;
+        await global.api.sendMessage(message, threadID);
+      }
+
     } catch (error) {
-      global.logger.error(`Error in adminUpdate: ${error.message}`);
+      global.logger.error('Error in groupCall event:', error.message);
     }
   },
-
-  run: async function({ api, message }) {
-    const { threadID, messageID } = message;
+  /**
+   * Handle thread-call events (new format)
+   * @param {Object} options - Options object
+   */
+  handleThreadCall: async function({ api, message, logMessageData, threadID }) {
     try {
-      return api.sendMessage("Yeh command group activities aur calls ko auto-detect karti hai. Iska koi manual use nahi hai.", threadID, messageID);
-    } catch (e) {
-      global.logger.error(e.message);
+      // Extract data from the new format
+      const joiningUser = logMessageData.caller_id || logMessageData.joining_user || 'unknown';
+      const callType = logMessageData.video ? 'video' : 'audio';
+
+      // Check if this is a join event (when joining_user is present but no specific event)
+      const isJoinEvent = !logMessageData.event && logMessageData.joining_user;
+
+      // Skip if caller is the bot
+      if (joiningUser === global.client.botID) return;
+
+      // Get caller info
+      let callerName = 'Someone';
+
+      try {
+        // Try to get name from Facebook
+        // Only attempt to get user info if we have a valid user ID
+        if (joiningUser && joiningUser !== 'unknown' && joiningUser !== '0') {
+          try {
+            const userInfo = await new Promise((resolve, reject) => {
+              api.getUserInfo(joiningUser, (err, info) => {
+                if (err) return reject(err);
+                resolve(info);
+              });
+            });
+
+            if (userInfo && userInfo[joiningUser] && userInfo[joiningUser].name) {
+              callerName = userInfo[joiningUser].name;
+            }
+          } catch (error) {
+            global.logger.debug(`Could not get user info for ID ${joiningUser}: ${error.message}`);
+            // Continue with default name
+          }
+        }
+      } catch (error) {
+        global.logger.error('Error in caller info section for thread-call:', error.message);
+      }
+
+      // Check if call started, ended, or participant joined
+      if (logMessageData.event === 'group_call_participant_joined') {
+        // Participant joined
+        const joinMessage = `📞 ${callerName} joined the ${callType} call.`;
+        await global.api.sendMessage(joinMessage, threadID);
+      } else if (logMessageData.event === 'group_call_ended') {
+        // Call ended
+        // Get call duration
+        let duration = 'unknown duration';
+
+        if (logMessageData.call_duration) {
+          const seconds = parseInt(logMessageData.call_duration);
+          if (seconds < 60) {
+            duration = `${seconds} seconds`;
+          } else {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            duration = `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+            if (remainingSeconds > 0) {
+              duration += ` ${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`;
+            }
+          }
+        }
+
+        // Get participants who were in the call
+        let participantNames = [];
+        if (logMessageData.missed_call_participant_ids) {
+          try {
+            // Parse the participant IDs from the string
+            const participantIds = JSON.parse(logMessageData.missed_call_participant_ids);
+
+            if (participantIds && participantIds.length > 0) {
+              // Get names of all participants
+              const userInfos = await new Promise((resolve, reject) => {
+                api.getUserInfo(participantIds, (err, info) => {
+                  if (err) return reject(err);
+                  resolve(info);
+                });
+              });
+
+              // Extract names
+              participantNames = participantIds.map(id => {
+                if (userInfos[id] && userInfos[id].name) {
+                  return userInfos[id].name;
+                }
+                return 'Unknown User';
+              });
+            }
+          } catch (error) {
+            global.logger.debug(`Could not get participant info: ${error.message}`);
+          }
+        }
+
+        // Don't show participants list as per user request
+        const message = `📞 The ${callType} call started by ${callerName} has ended.\nDuration: ${duration}`;
+        await api.sendMessage(message, threadID);
+      } else if (logMessageData.event === 'group_call_started') {
+        // Call started
+        const callMessage = `📞 ${callerName} started a ${callType} call in this group.`;
+        await api.sendMessage(callMessage, threadID);
+      } else if (isJoinEvent) {
+        // Participant joined (through alternative detection)
+        const joinMessage = `📞 ${callerName} joined the ${callType} call.`;
+        await api.sendMessage(joinMessage, threadID);
+      } else {
+        // Default case - likely a call start if no specific event
+        const callMessage = `📞 ${callerName} started a ${callType} call in this group.`;
+        await api.sendMessage(callMessage, threadID);
+      }
+
+    } catch (error) {
+      global.logger.error('Error handling thread-call event:', error.message);
     }
   }
 };
