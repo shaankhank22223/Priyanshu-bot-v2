@@ -6,7 +6,7 @@ module.exports = {
     name: "adminupdate",
     aliases: [],
     version: "1.0.0",
-    description: "Group ki activities aur updates ko track karta hai",
+    description: "Group ki activities aur updates ko track karta hai (Admins, Name, Call, etc.)",
     usage: "Automated - No command needed",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: false,
@@ -18,12 +18,15 @@ module.exports = {
   handleEvent: async function({ api, message }) {
     const { threadID, logMessageType, logMessageData, logMessageBody, author } = message;
     
-    // Sirf log messages par kaam karega
+    // Sirf log messages aur dusre users ke actions par kaam karega
     if (!logMessageType) return;
     if (author == api.getCurrentUserID()) return;
 
-    const iconPath = path.join(__dirname, "cache", "emoji.json");
-    if (!fs.existsSync(path.join(__dirname, "cache"))) fs.mkdirSync(path.join(__dirname, "cache"), { recursive: true });
+    const cacheDir = path.join(__dirname, "cache");
+    const iconPath = path.join(cacheDir, "emoji.json");
+
+    // Cache folder check aur create karna
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
     if (!fs.existsSync(iconPath)) fs.writeFileSync(iconPath, JSON.stringify({}));
 
     try {
@@ -77,11 +80,11 @@ module.exports = {
         }
 
         case "log:thread-poll": {
-          return api.sendMessage(`${logMessageBody}`, threadID);
+          return api.sendMessage(`[⚜️] Poll Update: ${logMessageBody}`, threadID);
         }
 
         case "log:thread-approval-mode": {
-          return api.sendMessage(logMessageBody, threadID);
+          return api.sendMessage(`[⚜️] Approval Mode: ${logMessageBody}`, threadID);
         }
 
         case "log:thread-color": {
@@ -94,7 +97,11 @@ module.exports = {
   },
 
   run: async function({ api, message }) {
-    // Ye function khali rahega kyunki logic handleEvent mein hai
-    return api.sendMessage("Yeh command group activities ko auto-detect karta hai.", message.threadID);
+    const { threadID, messageID } = message;
+    try {
+      return api.sendMessage("Yeh command group activities ko background mein auto-detect karti hai. Aapko ise manual trigger karne ki zaroorat nahi hai.", threadID, messageID);
+    } catch (e) {
+      global.logger.error(e);
+    }
   }
 };
