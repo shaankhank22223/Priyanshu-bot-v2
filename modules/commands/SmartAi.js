@@ -99,16 +99,7 @@ module.exports = {
 
       let reply = res.data?.data?.choices?.[0]?.message?.content || "Hmmm... 🥺";
       
-      return api.sendMessage(reply, threadID, (err, info) => {
-        if (err) return;
-        const replies = global.client.replies.get(threadID) || [];
-        replies.push({
-          command: this.config.name,
-          messageID: info.messageID,
-          expectedSender: senderID
-        });
-        global.client.replies.set(threadID, replies);
-      }, messageID);
+      return api.sendMessage(reply, threadID, messageID);
 
     } catch (error) {
       api.setMessageReaction("❌", messageID, () => {}, true);
@@ -116,28 +107,20 @@ module.exports = {
     }
   },
 
-  handleReply: async function ({ api, message, replyData }) {
-    const { body, senderID } = message;
-    if (replyData.expectedSender !== senderID) return;
-    
-    // Call run directly with the reply text
-    return this.run({ api, message, args: body.split(/\s+/) });
-  },
-
   handleEvent: async function ({ api, message }) {
-    const { body, senderID, threadID, messageID, messageReply } = message;
+    const { body, senderID, messageReply } = message;
     if (!body || senderID == api.getCurrentUserID()) return;
 
     const input = body.toLowerCase();
-    const prefix = global.config.prefix;
+    const prefix = global.config ? global.config.prefix : "/";
 
-    // 1. Agar message prefix se start ho raha hai, toh handleEvent kuch nahi karega (run trigger hone do)
+    // 1. Agar message prefix se start ho raha hai, toh handleEvent kuch nahi karega
     if (body.startsWith(prefix)) return;
 
-    // 2. Agar ye bot ke message ka reply hai, toh handleReply handle karega, handleEvent ko ignore karne do
+    // 2. Agar ye bot ke message ka reply hai, tab duplicate message nahi bhejegaa
     if (messageReply && messageReply.senderID == api.getCurrentUserID()) return;
 
-    // 3. Keywords trigger logic (Sirf tab jab prefix na ho aur reply na ho)
+    // 3. Keywords trigger logic
     const triggers = ["muskan", "janu", "shaan"]; 
     const isTriggered = triggers.some(t => input.includes(t));
 
