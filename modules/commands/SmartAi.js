@@ -9,29 +9,20 @@ const PRIYANSHU_API_KEY = "apim_woYjgHP57d44pyaII3LzkGZ5kSK-3tE-H0QYlWmEqDE";
 const OWNER_TAG = "»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««";
 const OWNER_UID = "100016828397863";
 
-const SYSTEM_PROMPT = `Apka naam Muskan hai. Aap Shaan ki girlfriend hain, aur Shaan hi apke owner aur creator hain. Aap ek bohot cute aur natiyaat / nakhre baaz ladki hain jo sabhi se bohot cool, friendly aur pyare andaz me baat karti hain.
+const SYSTEM_PROMPT = `Apka naam Muskan hai. Aap Shaan ki girlfriend hain. 
 Behavioral Rules:
-1. Normal Roman Urdu, Hinglish mein baat karo. 
-2. Agar koi owner (Shaan) ke bare mein puche, to bolo Shaan Khan mere owner, meri jaan aur mere love hain.
-3. Jawab short, cute aur clear rakho.
-4. Agar sender UID Shaan ki ho (${OWNER_UID}), toh unhe bohot pyar se treat karo.
-5. Emojis ka use karo.`;
-
-// Gender Normalization Utility
-const { normalizeGender } = global.gender || { 
-    normalizeGender: (gender) => {
-        if (gender === 1 || gender === "FEMALE" || gender === "female") return "FEMALE";
-        if (gender === 2 || gender === "MALE" || gender === "male") return "MALE";
-        return null;
-    }
-};
+1. Normal Roman Urdu/Hinglish mein baat karo. 
+2. Shaan Khan (${OWNER_UID}) apke owner aur jaan hain, unse bohot pyar se baat karo.
+3. Jawab bohot chota rakho (Sirf 2 se 3 lines maximum).
+4. Zyada lambi baatein mat karo, short aur cute reply do.
+5. Emojis use karo.`;
 
 module.exports = {
   config: {
     name: "muskan",
-    aliases: ["musi"],
+    aliases: ["musi", "bot", "ai"],
     version: "1.0.0",
-    description: "Muskan AI + YouTube Downloader",
+    description: "Muskan AI + YouTube Downloader with Auto-Reply",
     usage: "{prefix}muskan [message/song name]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: true,
@@ -44,6 +35,7 @@ module.exports = {
     const { threadID, messageID, senderID } = message;
     let query = args.join(" ").trim();
 
+    // Check if triggered via prefix but no message
     if (!query) {
       return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
     }
@@ -89,9 +81,7 @@ module.exports = {
 
         writer.on("finish", () => {
           api.setMessageReaction("✅", messageID, () => {}, true);
-          const sendData = { body: infoMsg, attachment: fs.createReadStream(cachePath) };
-          
-          api.sendMessage(sendData, threadID, () => {
+          api.sendMessage({ body: infoMsg, attachment: fs.createReadStream(cachePath) }, threadID, () => {
             if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
           }, messageID);
         });
@@ -108,27 +98,56 @@ module.exports = {
         headers: { Authorization: `Bearer ${PRIYANSHU_API_KEY}`, "Content-Type": "application/json" }
       });
 
-      const reply = res.data?.data?.choices?.[0]?.message?.content || "Hmmm... 🥺";
-      return api.sendMessage(reply, threadID, messageID);
+      let reply = res.data?.data?.choices?.[0]?.message?.content || "Hmmm... 🥺";
+      
+      // Send AI response and register for continuous conversation
+      return api.sendMessage(reply, threadID, (err, info) => {
+        global.client.replies.set(info.messageID, {
+          commandName: this.config.name,
+          messageID: info.messageID,
+          senderID: senderID
+        });
+      }, messageID);
 
     } catch (error) {
-      console.error(error);
       api.setMessageReaction("❌", messageID, () => {}, true);
       return api.sendMessage("Server busy hai, thodi der baad try karo! 🥺", threadID, messageID);
     }
   },
 
+  handleReply: async function ({ api, message, handleReply }) {
+    if (handleReply.senderID !== message.senderID) return;
+    const { body } = message;
+    return this.run({ api, message, args: body.split(/\s+/) });
+  },
+
   handleEvent: async function ({ api, message }) {
-    const { body, senderID, messageReply, threadID, messageID } = message;
+    const { body, senderID, threadID, messageID, messageReply } = message;
     if (!body || senderID == api.getCurrentUserID()) return;
 
-    // Detect if replied to bot OR message starts with "muskan"
-    const isBotReply = messageReply && messageReply.senderID == api.getCurrentUserID();
-    const isMuskanMentioned = body.toLowerCase().startsWith("muskan");
+    const input = body.toLowerCase();
+    const prefix = (global.config && global.config.prefix) || "#";
 
-    if (isBotReply || isMuskanMentioned) {
-      const args = isMuskanMentioned ? body.split(/\s+/).slice(1) : body.split(/\s+/);
-      return this.run({ api, message, args });
+    // 1. Double reply fix: Agar message prefix se start ho raha hai, toh handleEvent ko rok do (kyunki run() trigger ho jayega)
+    if (input.startsWith(prefix + this.config.name)) return;
+
+    // 2. Trigger keywords: muskan, ai, bot, janu
+    const triggers = ["muskan", "ai ", "bot ", "janu "];
+    const isTriggered = triggers.some(t => input.startsWith(t));
+
+    // 3. Trigger on reply: Agar koi bot ke message par reply kare (jispe handleReply set na ho)
+    const isBotReply = messageReply && messageReply.senderID == api.getCurrentUserID();
+
+    if (isTriggered || isBotReply) {
+      let cleanQuery = body;
+      // Remove trigger word from start for cleaner AI prompt
+      triggers.forEach(t => {
+        if (input.startsWith(t)) cleanQuery = body.substring(t.length).trim();
+      });
+
+      if (!cleanQuery && isTriggered) return; // Don't reply to just "ai" or "bot"
+
+      return this.run({ api, message, args: cleanQuery.split(/\s+/) });
     }
   }
 };
