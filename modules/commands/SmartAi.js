@@ -47,12 +47,13 @@ module.exports = {
       // --- MEDIA DOWNLOADER LOGIC ---
       if (isVideoReq || isAudioReq || isUrl) {
         api.setMessageReaction("⌛", messageID, () => {}, true);
-        
+
         let searchQuery = query.replace(/video|vdo|mp4|song|music|audio|mp3|play|gaana|gane|ghana/gi, "").trim();
         if (isUrl) searchQuery = query;
 
         const searchResult = await yts(searchQuery);
         if (!searchResult || !searchResult.videos.length) {
+          api.setMessageReaction("❌", messageID, () => {}, true);
           return api.sendMessage("Maafi, ye video ya song nahi mila 🥺💔", threadID, messageID);
         }
 
@@ -71,7 +72,11 @@ module.exports = {
         const downloadUrl = dlResponse.data?.data?.downloadUrl;
         if (!downloadUrl) return api.sendMessage("Download link nahi mil paaya 🥺", threadID, messageID);
 
-        const cachePath = path.join(__dirname, "cache", `muskan_${Date.now()}.${format}`);
+        // Ensure cache directory exists
+        const cacheDir = path.join(__dirname, "cache");
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+        const cachePath = path.join(cacheDir, `muskan_${Date.now()}.${format}`);
         const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n🥀 𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${format.toUpperCase()}`;
 
         const writer = fs.createWriteStream(cachePath);
@@ -98,37 +103,33 @@ module.exports = {
       });
 
       let reply = res.data?.data?.choices?.[0]?.message?.content || "Hmmm... 🥺";
-      
       return api.sendMessage(reply, threadID, messageID);
 
     } catch (error) {
+      console.error(error);
       api.setMessageReaction("❌", messageID, () => {}, true);
       return api.sendMessage("Server busy hai, thodi der baad try karo! 🥺", threadID, messageID);
     }
   },
 
   handleEvent: async function ({ api, message }) {
-    const { body, senderID, messageReply } = message;
+    const { threadID, messageID, body, senderID, messageReply } = message;
     if (!body || senderID == api.getCurrentUserID()) return;
 
     const input = body.toLowerCase();
-    
-    // Commands aur aliases direct check karo taaki handleEvent double trigger na ho
-    const commandNames = [this.config.name, ...this.config.aliases];
-    const firstWord = input.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '');
+    const prefix = global.config.prefix;
 
-    // Agar command prefix se lagayi ja rahi hai (e.g. /muskan hi), toh handleEvent ko rok do
-    if (commandNames.includes(firstWord)) return;
+    // Agar message prefix se start ho raha hai toh handleEvent execute nahi hoga (taaki double reply na ho)
+    if (body.startsWith(prefix)) return;
 
-    // Direct reply par double triggers roko
-    if (messageReply && messageReply.senderID == api.getCurrentUserID()) return;
-
-    // Keywords trigger (Sirf bina prefix ke normal chat par chalega)
-    const triggers = ["muskan", "janu", "shaan"]; 
+    // Trigger Keywords
+    const triggers = ["muskan", "janu", "shaan"];
     const isTriggered = triggers.some(t => input.includes(t));
 
-    if (isTriggered) {
-      return this.run({ api, message, args: body.trim().split(/\s+/) });
+    // Agar trigger milta hai aur reply nahi hai (direct message)
+    if (isTriggered && (!messageReply || messageReply.senderID != api.getCurrentUserID())) {
+        const args = body.split(/\s+/);
+        return this.run({ api, message, args });
     }
   }
 };
