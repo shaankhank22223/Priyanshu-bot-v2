@@ -24,7 +24,7 @@ module.exports = {
     version: "1.0.0",
     description: "Muskan AI + YouTube Downloader with Auto-Reply",
     usage: "{prefix}muskan [message/song name]",
-    credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
+    credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝒂𝒋𝒑𝒖𝒕",
     hasPrefix: true,
     permission: "PUBLIC",
     cooldown: 5,
@@ -112,20 +112,23 @@ module.exports = {
     if (!body || senderID == api.getCurrentUserID()) return;
 
     const input = body.toLowerCase();
-    const prefix = global.config ? global.config.prefix : "/";
+    
+    // Commands aur aliases direct check karo taaki handleEvent double trigger na ho
+    const commandNames = [this.config.name, ...this.config.aliases];
+    const firstWord = input.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '');
 
-    // 1. Agar message prefix se start ho raha hai, toh handleEvent kuch nahi karega
-    if (body.startsWith(prefix)) return;
+    // Agar command prefix se lagayi ja rahi hai (e.g. /muskan hi), toh handleEvent ko rok do
+    if (commandNames.includes(firstWord)) return;
 
-    // 2. Agar ye bot ke message ka reply hai, tab duplicate message nahi bhejegaa
+    // Direct reply par double triggers roko
     if (messageReply && messageReply.senderID == api.getCurrentUserID()) return;
 
-    // 3. Keywords trigger logic
+    // Keywords trigger (Sirf bina prefix ke normal chat par chalega)
     const triggers = ["muskan", "janu", "shaan"]; 
     const isTriggered = triggers.some(t => input.includes(t));
 
     if (isTriggered) {
-      return this.run({ api, message, args: body.split(/\s+/) });
+      return this.run({ api, message, args: body.trim().split(/\s+/) });
     }
   }
 };
