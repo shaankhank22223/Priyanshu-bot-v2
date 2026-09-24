@@ -22,7 +22,7 @@ const { normalizeGender } = global.gender || {
 
 async function getAiReply(senderID, promptText, senderName, senderGender) {
   const systemPrompt = `
-Tum Muskan ho, ek smart aur cute ladki ho. Tum Shaan ki Girlfriend ho. Koi flirt Kare to usko acchi Tarah se jawab den. Jawab Roman Urdu/Hinglish mein do.
+Tumhara name Muskan hai, ap ek smart aur cute ladki hai. Tum Shaan ki Girlfriend ho. Koi flirt Kare to usko acchi Tarah se jawab den. Jawab Roman Urdu/Hinglish mein do.
 User Name: ${senderName}, Gender: ${senderGender}.
 Rules:
 1. Shaan Khan (${OWNER_UID}) tumhare owner aur love hain.
@@ -50,10 +50,10 @@ module.exports = {
   config: {
     name: "muskan",
     aliases: ["ai", "bot", "ms"],
-    version: "1.3.0",
+    version: "1.4.0",
     description: "Muskan AI with Typing Status and Auto-Media Downloader",
     usage: "{prefix}muskan [query/song/video]",
-    credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
+    credit: "Shaan Khan",
     hasPrefix: false,
     permission: "PUBLIC",
     cooldown: 5,
@@ -68,7 +68,7 @@ module.exports = {
       return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
     }
 
-    // Show "typing..." status
+    // Show typing status in chat
     api.sendTypingIndicator(threadID);
 
     try {
@@ -86,19 +86,17 @@ module.exports = {
 
         const video = searchResult.videos[0];
         const format = isVideoReq ? "mp4" : "mp3";
-        const mediaType = isVideoReq ? "Video" : "Audio";
+        const mediaType = isVideoReq ? "video" : "audio";
 
-        // Template (Views removed)
-        const mediaDetails = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}\n\n${OWNER_TAG}🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${mediaType}`;
+        // Details Template
+        const mediaDetails = `🎵 | 𝗕𝗮𝗯𝘆, 𝗠𝗮𝗶𝗻 𝗮𝗮𝗽𝗸𝗮 ${mediaType} 𝗱𝗼𝘄𝗻𝗹𝗼𝗮𝗱 𝗸𝗮𝗿 𝗿𝗮𝗵𝗶 𝗵𝗼𝗼𝗻...\n\n📝 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}\n\n${OWNER_TAG}🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${mediaType}`;
 
-        // 1. Audio Request par Title details turant send hongi
         if (!isVideoReq) {
           await api.sendMessage(mediaDetails, threadID);
         }
 
         api.sendTypingIndicator(threadID);
 
-        // Download link fetch process
         const dlRes = await axios.post(`https://priyanshuapi.qzz.io/api/runner/youtube-downloader-v2/download`, {
           url: video.url, format: format, quality: isVideoReq ? "360" : "320"
         }, {
@@ -122,7 +120,6 @@ module.exports = {
           api.setMessageReaction("✅", messageID, () => {}, true);
 
           if (isVideoReq) {
-            // VIDEO: Single message with details and attachment
             api.sendMessage({
               body: mediaDetails,
               attachment: fs.createReadStream(cachePath)
@@ -130,13 +127,12 @@ module.exports = {
               if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
             }, messageID);
           } else {
-            // AUDIO: 3-second delay ke baad bina reply option ke audio file direct send hogi
             await sleep(3000);
             api.sendMessage({
               attachment: fs.createReadStream(cachePath)
             }, threadID, () => {
               if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-            }); // messageID parameter yahan se hata diya hai taki reply na bane
+            });
           }
         });
 
@@ -156,9 +152,13 @@ module.exports = {
 
       return api.sendMessage(reply, threadID, (err, info) => {
         if (err) return;
-        const replies = global.client.replies?.get(threadID) || [];
-        replies.push({ command: this.config.name, messageID: info.messageID, expectedSender: senderID });
-        if (global.client.replies) global.client.replies.set(threadID, replies);
+        // Reply handler setup for bot replies
+        if (global.client && global.client.replies) {
+          global.client.replies.set(info.messageID, {
+            commandName: this.config.name,
+            author: senderID
+          });
+        }
       }, messageID);
 
     } catch (error) {
@@ -166,10 +166,10 @@ module.exports = {
     }
   },
 
-  handleReply: async function ({ api, message, replyData }) {
+  handleReply: async function ({ api, message, handleReply }) {
     const { threadID, messageID, senderID, body } = message;
-    if (senderID !== replyData.expectedSender) return;
 
+    // Show typing status on reply
     api.sendTypingIndicator(threadID);
 
     try {
@@ -181,9 +181,12 @@ module.exports = {
 
       return api.sendMessage(reply, threadID, (err, info) => {
         if (err) return;
-        const replies = global.client.replies?.get(threadID) || [];
-        replies.push({ command: this.config.name, messageID: info.messageID, expectedSender: senderID });
-        if (global.client.replies) global.client.replies.set(threadID, replies);
+        if (global.client && global.client.replies) {
+          global.client.replies.set(info.messageID, {
+            commandName: this.config.name,
+            author: senderID
+          });
+        }
       }, messageID);
     } catch (e) {
       return api.sendMessage("System error baby 🥺", threadID, messageID);
