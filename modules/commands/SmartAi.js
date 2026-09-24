@@ -8,9 +8,6 @@ const OWNER_TAG = "»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 
 const OWNER_UID = "100016828397863"; 
 const LITE_AI_URL = "https://priyanshuapi.qzz.io/api/runner/lite-ai/chat";
 
-// Helper function for delay
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 // Gender Utility
 const { normalizeGender } = global.gender || { 
     normalizeGender: (gender) => {
@@ -50,8 +47,8 @@ module.exports = {
   config: {
     name: "muskan",
     aliases: ["ai", "bot", "ms"],
-    version: "1.4.0",
-    description: "Muskan AI with Typing Status and Auto-Media Downloader",
+    version: "1.0.0",
+    description: "Muskan AI with Auto-Media Downloader and Continuous Chat",
     usage: "{prefix}muskan [query/song/video]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: false,
@@ -68,16 +65,16 @@ module.exports = {
       return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
     }
 
-    // Show typing status in chat
-    api.sendTypingIndicator(threadID);
-
     try {
       const isVideoReq = /\b(video|vdo|mp4|film|movie)\b/i.test(query);
       const isAudioReq = /\b(song|music|audio|mp3|play|gaana|gane|ghana)\b/i.test(query);
       const isUrl = /(youtube\.com|youtu\.be)/i.test(query);
 
+      // --- Media Downloader Logic ---
       if (isVideoReq || isAudioReq || isUrl) {
         api.setMessageReaction("⌛", messageID, () => {}, true);
+        api.sendTypingIndicator(threadID);
+        
         let searchQuery = query.replace(/video|vdo|mp4|song|music|audio|mp3|play|gaana|gane|ghana/gi, "").trim();
         if (isUrl) searchQuery = query;
 
@@ -87,15 +84,6 @@ module.exports = {
         const video = searchResult.videos[0];
         const format = isVideoReq ? "mp4" : "mp3";
         const mediaType = isVideoReq ? "video" : "audio";
-
-        // Details Template
-        const mediaDetails = `🎵 | 𝗕𝗮𝗯𝘆, 𝗠𝗮𝗶𝗻 𝗮𝗮𝗽𝗸𝗮 ${mediaType} 𝗱𝗼𝘄𝗻𝗹𝗼𝗮𝗱 𝗸𝗮𝗿 𝗿𝗮𝗵𝗶 𝗵𝗼𝗼𝗻...\n\n📝 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}\n\n${OWNER_TAG}🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${mediaType}`;
-
-        if (!isVideoReq) {
-          await api.sendMessage(mediaDetails, threadID);
-        }
-
-        api.sendTypingIndicator(threadID);
 
         const dlRes = await axios.post(`https://priyanshuapi.qzz.io/api/runner/youtube-downloader-v2/download`, {
           url: video.url, format: format, quality: isVideoReq ? "360" : "320"
@@ -107,43 +95,29 @@ module.exports = {
         const downloadUrl = dlRes.data?.data?.downloadUrl;
         if (!downloadUrl) throw new Error("Link failed");
 
-        const cacheDir = path.join(__dirname, "cache");
-        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+        const cachePath = path.join(__dirname, "cache", `muskan_${Date.now()}.${format}`);
+        if (!fs.existsSync(path.join(__dirname, "cache"))) fs.mkdirSync(path.join(__dirname, "cache"), { recursive: true });
 
-        const cachePath = path.join(cacheDir, `muskan_${Date.now()}.${format}`);
         const writer = fs.createWriteStream(cachePath);
         const stream = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream' });
-        
         stream.data.pipe(writer);
 
-        writer.on("finish", async () => {
+        writer.on("finish", () => {
           api.setMessageReaction("✅", messageID, () => {}, true);
-
-          if (isVideoReq) {
-            api.sendMessage({
-              body: mediaDetails,
-              attachment: fs.createReadStream(cachePath)
-            }, threadID, () => {
-              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-            }, messageID);
-          } else {
-            await sleep(3000);
-            api.sendMessage({
-              attachment: fs.createReadStream(cachePath)
-            }, threadID, () => {
-              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-            });
-          }
+          const mediaDetails = `🎵 | 𝗕𝗮𝗯𝘆, 𝗠𝗮𝗶𝗻𝗲 𝗱𝗼𝘄𝗻𝗹𝗼𝗮𝗱 𝗸𝗮𝗿 𝗹𝗶𝘆𝗮!\n\n📝 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}\n\n${OWNER_TAG}`;
+          
+          api.sendMessage({
+            body: mediaDetails,
+            attachment: fs.createReadStream(cachePath)
+          }, threadID, () => {
+            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+          }, messageID);
         });
-
-        writer.on("error", () => {
-          throw new Error("Write stream error");
-        });
-
         return;
       }
 
       // --- AI Chat Logic ---
+      api.sendTypingIndicator(threadID);
       const userInfo = await api.getUserInfo(senderID);
       const name = userInfo[senderID]?.name || "User";
       const gender = normalizeGender(userInfo[senderID]?.gender);
@@ -152,24 +126,28 @@ module.exports = {
 
       return api.sendMessage(reply, threadID, (err, info) => {
         if (err) return;
-        // Reply handler setup for bot replies
-        if (global.client && global.client.replies) {
-          global.client.replies.set(info.messageID, {
-            commandName: this.config.name,
-            author: senderID
-          });
-        }
+        // Register for Continuous Reply
+        const replies = global.client.replies.get(threadID) || [];
+        replies.push({
+          command: this.config.name,
+          messageID: info.messageID,
+          expectedSender: senderID
+        });
+        global.client.replies.set(threadID, replies);
       }, messageID);
 
     } catch (error) {
+      console.error(error);
       return api.sendMessage("Server busy hai, thodi der baad try karna 🥺", threadID, messageID);
     }
   },
 
-  handleReply: async function ({ api, message, handleReply }) {
+  handleReply: async function ({ api, message, replyData }) {
     const { threadID, messageID, senderID, body } = message;
+    
+    // Sirf wahi user reply kare jisne command start kiya
+    if (replyData.expectedSender && replyData.expectedSender !== senderID) return;
 
-    // Show typing status on reply
     api.sendTypingIndicator(threadID);
 
     try {
@@ -181,15 +159,17 @@ module.exports = {
 
       return api.sendMessage(reply, threadID, (err, info) => {
         if (err) return;
-        if (global.client && global.client.replies) {
-          global.client.replies.set(info.messageID, {
-            commandName: this.config.name,
-            author: senderID
-          });
-        }
+        // Register again for next reply
+        const replies = global.client.replies.get(threadID) || [];
+        replies.push({
+          command: this.config.name,
+          messageID: info.messageID,
+          expectedSender: senderID
+        });
+        global.client.replies.set(threadID, replies);
       }, messageID);
     } catch (e) {
-      return api.sendMessage("System error baby 🥺", threadID, messageID);
+      return api.sendMessage("Gussa mat hona, server error 🥺", threadID, messageID);
     }
   }
 };
