@@ -8,16 +8,14 @@ const OWNER_TAG = "»»𝑶𝑾𝑵𝑬𝑹««★™ »»𝑺𝑯𝑨𝑨𝑵 �
 const OWNER_UID = "100016828397863";
 const LITE_AI_URL = "https://priyanshuapi.qzz.io/api/runner/lite-ai/chat";
 
-// Helper function for delay
+// Helper for delay
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ALWAYS define normalizeGender
-const { normalizeGender } = global.gender || { 
-    normalizeGender: (gender) => {
-        if (gender === 1 || gender === "FEMALE" || gender === "female") return "FEMALE";
-        if (gender === 2 || gender === "MALE" || gender === "male") return "MALE";
-        return null;
-    }
+// Gender Utility
+const normalizeGender = (gender) => {
+    if (gender === 1 || gender === "FEMALE" || gender === "female") return "FEMALE";
+    if (gender === 2 || gender === "MALE" || gender === "male") return "MALE";
+    return "Unknown";
 };
 
 async function getAiReply(senderID, promptText, senderName, senderGender) {
@@ -30,10 +28,11 @@ async function getAiReply(senderID, promptText, senderName, senderGender) {
             systemPrompt: systemPrompt
         }, {
             headers: { Authorization: `Bearer ${PRIYANSHU_API_KEY}`, "Content-Type": "application/json" },
-            timeout: 15000
+            timeout: 20000
         });
         return response.data?.data?.choices?.[0]?.message?.content || "Kuch samajh nahi aaya baby? 🥺";
     } catch (e) {
+        console.error("AI Error:", e.message);
         return "Server thoda slow hai, gussa mat hona! 🥺";
     }
 }
@@ -93,28 +92,32 @@ module.exports = {
                 });
 
                 const downloadUrl = dlRes.data?.data?.downloadUrl;
-                if (!downloadUrl) throw new Error("Link failed");
+                if (!downloadUrl) throw new Error("Download link not found");
 
-                const cachePath = path.join(__dirname, "cache", `muskan_${Date.now()}.${format}`);
-                if (!fs.existsSync(path.join(__dirname, "cache"))) fs.mkdirSync(path.join(__dirname, "cache"), { recursive: true });
+                const cacheDir = path.join(__dirname, "cache");
+                if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+                const cachePath = path.join(cacheDir, `muskan_${Date.now()}.${format}`);
+
+                const response = await axios({
+                    url: downloadUrl,
+                    method: 'GET',
+                    responseType: 'stream'
+                });
 
                 const writer = fs.createWriteStream(cachePath);
-                const stream = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream' });
-                stream.data.pipe(writer);
+                response.data.pipe(writer);
 
                 writer.on("finish", async () => {
                     api.setMessageReaction("✅", messageID, () => {}, true);
-                    const attachment = fs.createReadStream(cachePath);
-                    if (isVideoReq) {
-                        api.sendMessage({ body: mediaDetails, attachment }, threadID, () => {
-                            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-                        }, messageID);
-                    } else {
-                        await sleep(1000);
-                        api.sendMessage({ attachment }, threadID, () => {
-                            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-                        });
-                    }
+                    const msg = isVideoReq ? { body: mediaDetails, attachment: fs.createReadStream(cachePath) } : { attachment: fs.createReadStream(cachePath) };
+                    
+                    api.sendMessage(msg, threadID, (err) => {
+                        if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+                    }, messageID);
+                });
+
+                writer.on("error", (err) => {
+                    throw err;
                 });
                 return;
             }
@@ -123,6 +126,7 @@ module.exports = {
             const userInfo = await api.getUserInfo(senderID);
             const name = userInfo[senderID]?.name || "User";
             const gender = normalizeGender(userInfo[senderID]?.gender);
+            
             const reply = await getAiReply(senderID, query, name, gender);
 
             return api.sendMessage(reply, threadID, (err, info) => {
@@ -138,13 +142,16 @@ module.exports = {
             }, messageID);
 
         } catch (error) {
-            return api.sendMessage("Server busy hai, thodi der baad try karna 🥺", threadID, messageID);
+            console.error(error);
+            api.setMessageReaction("❌", messageID, () => {}, true);
+            return api.sendMessage("Server busy hai baby, thodi der baad try karna 🥺", threadID, messageID);
         }
     },
 
     handleReply: async function ({ api, message, replyData }) {
         const { threadID, messageID, senderID, body } = message;
-        
+        if (senderID !== replyData.expectedSender) return;
+
         api.sendTypingIndicator(threadID);
 
         try {
