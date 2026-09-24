@@ -18,8 +18,6 @@ const { normalizeGender } = global.gender || {
 };
 
 async function getAiReply(senderID, promptText, senderName, senderGender) {
-  const apiKey = PRIYANSHU_API_KEY;
-  
   const systemPrompt = `
 Tum Muskan ho, ek smart aur cute ladki ho.
 Behavioral Rules:
@@ -32,29 +30,32 @@ Behavioral Rules:
 7. Dusro ke liye ek cool friend raho.
   `.trim();
 
-  const response = await axios.post(
-    LITE_AI_URL,
-    {
-      uid: String(senderID),
-      prompt: promptText,
-      systemPrompt: systemPrompt
-    },
-    {
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      timeout: 20000
-    }
-  );
-
-  return response.data?.data?.choices?.[0]?.message?.content || "Kuch samajh nahi aaya, phir se bolo? 🥺";
+  try {
+    const response = await axios.post(
+      LITE_AI_URL,
+      {
+        uid: String(senderID),
+        prompt: promptText,
+        systemPrompt: systemPrompt
+      },
+      {
+        headers: { Authorization: `Bearer ${PRIYANSHU_API_KEY}`, "Content-Type": "application/json" },
+        timeout: 20000
+      }
+    );
+    return response.data?.data?.choices?.[0]?.message?.content || "Kuch samajh nahi aaya, phir se bolo? 🥺";
+  } catch (error) {
+    return "Server busy hai baby, thodi der baad try karo! 🥺";
+  }
 }
 
 module.exports = {
   config: {
     name: "muskan",
     aliases: ["ai", "bot", "ms"],
-    version: "1.1.0",
+    version: "1.0.0",
     description: "Muskan AI with YouTube Downloader and Unified Control",
-    usage: "{prefix}[muskan/ai/bot] [message/song/video]",
+    usage: "{prefix}muskan [message/song/video]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: false,
     permission: "PUBLIC",
@@ -64,20 +65,16 @@ module.exports = {
 
   run: async function ({ api, message, args }) {
     const { threadID, messageID, senderID } = message;
+    let query = args.join(" ").trim();
 
-    // Typing indicator (3 dots) start
-    let stopTyping;
-    if (typeof api.sendTypingIndicator === "function") {
-      stopTyping = api.sendTypingIndicator(threadID);
+    if (!query) {
+      return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
     }
 
+    // Typing indicator
+    if (typeof api.sendTypingIndicator === "function") api.sendTypingIndicator(threadID);
+
     try {
-      let query = (args.join(" ") || "").trim();
-
-      if (!query) {
-        return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
-      }
-
       const isVideoReq = /\b(video|vdo|mp4|film|movie)\b/i.test(query);
       const isAudioReq = /\b(song|music|audio|mp3|play|gaana|gane|ghana)\b/i.test(query);
       const isUrl = /(youtube\.com|youtu\.be)/i.test(query);
@@ -85,7 +82,6 @@ module.exports = {
       // --- Media Downloader Section ---
       if (isVideoReq || isAudioReq || isUrl) {
         api.setMessageReaction("⌛", messageID, () => {}, true);
-
         let searchQuery = query.replace(/video|vdo|mp4|song|music|audio|mp3|play|gaana|gane|ghana/gi, "").trim();
         if (isUrl) searchQuery = query;
 
@@ -113,8 +109,6 @@ module.exports = {
         const cachePath = path.join(__dirname, "cache", `muskan_${Date.now()}.${format}`);
         if (!fs.existsSync(path.dirname(cachePath))) fs.mkdirSync(path.dirname(cachePath), { recursive: true });
 
-        const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n🥀 𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰 👉 ${format.toUpperCase()}`;
-
         const responseStream = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(cachePath);
         responseStream.data.pipe(writer);
@@ -128,11 +122,12 @@ module.exports = {
           }
 
           api.setMessageReaction("✅", messageID, () => {}, true);
-          api.sendMessage({ body: infoMsg, attachment: fs.createReadStream(cachePath) }, threadID, () => {
-            setTimeout(() => { if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath); }, 30000);
+          const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n🥀 𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰 👉 ${format.toUpperCase()}`;
+          
+          return api.sendMessage({ body: infoMsg, attachment: fs.createReadStream(cachePath) }, threadID, () => {
+            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
           }, messageID);
         });
-
         return;
       }
 
@@ -142,32 +137,51 @@ module.exports = {
       const gender = normalizeGender(userInfo[senderID]?.gender);
 
       const aiReply = await getAiReply(senderID, query, name, gender);
-      return api.sendMessage(aiReply, threadID, messageID);
+
+      return api.sendMessage(aiReply, threadID, (err, info) => {
+        if (err) return;
+        // Register reply listener for continuous conversation
+        const replies = global.client.replies.get(threadID) || [];
+        replies.push({
+          command: this.config.name,
+          messageID: info.messageID,
+          expectedSender: senderID
+        });
+        global.client.replies.set(threadID, replies);
+      }, messageID);
 
     } catch (error) {
-      if (global.logger) global.logger.error(`Error in Muskan: ${error.message}`);
-      else console.error(`Error in Muskan: ${error.message}`);
-      
       api.setMessageReaction("❌", messageID, () => {}, true);
       return api.sendMessage("Server busy hai baby, thodi der baad try karo! 🥺", threadID, messageID);
-    } finally {
-      // Stop typing indicator when done
-      if (typeof stopTyping === "function") stopTyping();
     }
   },
 
-  handleEvent: async function ({ api, message }) {
-    const { body, senderID, messageReply } = message;
-    if (!body || senderID == api.getCurrentUserID()) return;
+  handleReply: async function ({ api, message, replyData }) {
+    const { threadID, messageID, senderID, body } = message;
+    if (senderID !== replyData.expectedSender) return;
 
-    const lowerBody = body.toLowerCase();
-    const isBotReply = messageReply && messageReply.senderID == api.getCurrentUserID();
-    const isTriggerWord = /^(muskan|ai|bot|ms)\b/i.test(lowerBody);
+    if (typeof api.sendTypingIndicator === "function") api.sendTypingIndicator(threadID);
 
-    if (isBotReply || isTriggerWord) {
-      let cleanedText = body.replace(/^(muskan|ai|bot|ms)\s*/i, "").trim();
-      const args = cleanedText ? cleanedText.split(/\s+/) : [];
-      return this.run({ api, message, args });
+    try {
+      const userInfo = await api.getUserInfo(senderID);
+      const name = userInfo[senderID]?.name || "User";
+      const gender = normalizeGender(userInfo[senderID]?.gender);
+
+      const aiReply = await getAiReply(senderID, body, name, gender);
+
+      return api.sendMessage(aiReply, threadID, (err, info) => {
+        if (err) return;
+        // Register again for next reply
+        const replies = global.client.replies.get(threadID) || [];
+        replies.push({
+          command: this.config.name,
+          messageID: info.messageID,
+          expectedSender: senderID
+        });
+        global.client.replies.set(threadID, replies);
+      }, messageID);
+    } catch (error) {
+      return api.sendMessage("❌ Error logic in handleReply", threadID, messageID);
     }
   }
 };
