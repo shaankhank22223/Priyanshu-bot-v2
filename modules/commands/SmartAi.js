@@ -53,7 +53,7 @@ module.exports = {
     version: "1.4.0",
     description: "Muskan AI with Typing Status and Auto-Media Downloader",
     usage: "{prefix}muskan [query/song/video]",
-    credit: "Shaan Khan",
+    credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: false,
     permission: "PUBLIC",
     cooldown: 5,
