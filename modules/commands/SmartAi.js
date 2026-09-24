@@ -1,222 +1,229 @@
 const axios = require("axios");
+const yts = require("yt-search");
 const fs = require("fs");
 const path = require("path");
-const ytSearch = require("yt-search");
 
-// REQUIRED: Gender normalization function
-const { normalizeGender } = global.gender || { 
-    normalizeGender: (gender) => {
-        if (gender === 1 || gender === "FEMALE" || gender === "female") return "FEMALE";
-        if (gender === 2 || gender === "MALE" || gender === "male") return "MALE";
-        return null;
-    }
-};
+const PRIYANSHU_API_KEY = "apim_woYjgHP57d44pyaII3LzkGZ5kSK-3tE-H0QYlWmEqDE";
+const OWNER_TAG = "»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««";
+const OWNER_UID = "100016828397863"; 
 
-const API_BASE_URL = "https://priyanshuapi.qzz.io";
-const AI_CHAT_URL = `${API_BASE_URL}/api/runner/lite-ai/chat`;
-const MUSIC_DOWNLOAD_URL = `${API_BASE_URL}/api/runner/youtube-downloader-v2/download`;
-const SYSTEM_PROMPT = "Tumraha name is Muskan (مسکان). Ap Shaan ki Girlfriend hai, sweet, our intelligent ladki ho apka owner Shaan Khan Hai. Reply naturally and cleverly in the same language and style used by the user. Keep answers short, clear, and engaging.";
+const LITE_AI_URL = "https://priyanshuapi.qzz.io/api/runner/lite-ai/chat";
 
-/**
- * Detects if the user wants a song or video
- */
-function detectMediaIntent(text) {
-  const mediaKeywords = ["gana", "song", "video", "mp3", "mp4", "play", "bhejo", "sunao", "download", "music", "gaane", "suna"];
-  const lower = text.toLowerCase();
-  const wantsVideo = lower.includes("video") || lower.includes("mp4");
-  const wantsMedia = mediaKeywords.some(keyword => lower.includes(keyword));
-  return { wantsMedia, wantsVideo };
-}
+// AI Response Fetcher using Priyanshu Lite AI
+async function getAiReply(senderID, promptText) {
+  const apiKey = global.config?.apiKeys?.priyanshuApi || process.env.PRIYANSHU_API_KEY || PRIYANSHU_API_KEY;
 
-/**
- * Downloads and sends media from YouTube
- */
-async function downloadAndSendMedia({ api, threadID, messageID, query, isVideo, apiKey }) {
-  const cacheDir = path.join(__dirname, "cache");
-  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-
-  const extension = isVideo ? "mp4" : "mp3";
-  const filePath = path.join(cacheDir, `${Date.now()}.${extension}`);
-  let processingMsg;
-
-  try {
-    api.setMessageReaction("⌛", messageID, () => {}, true);
-    processingMsg = await api.sendMessage(`🔍 Searching for your ${isVideo ? "video" : "song"}...`, threadID);
-
-    const searchResult = await ytSearch(query);
-    if (!searchResult || !searchResult.videos.length) {
-      api.setMessageReaction("❌", messageID, () => {}, true);
-      if (processingMsg) api.unsendMessage(processingMsg.messageID);
-      return api.sendMessage("❌ Sorry, I couldn't find that song/video.", threadID, messageID);
-    }
-
-    const video = searchResult.videos[0];
-    const payload = {
-      url: video.url,
-      format: isVideo ? "mp4" : "mp3",
-      quality: isVideo ? "360" : "320"
-    };
-
-    const response = await axios.post(MUSIC_DOWNLOAD_URL, payload, {
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      timeout: 60000
-    });
-
-    const downloadUrl = response.data?.data?.downloadUrl;
-    if (!downloadUrl) throw new Error("Download link expired or not found.");
-
-    const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n»»OW𝑵𝑬𝑹««★™ »»𝑺𝑯𝑨𝑨𝑵 𝑲𝑯𝑨𝑵««\n🥀 𝒀𝒆 𝒍𝒐 𝒃𝒂𝒃𝒚 𝒂𝒑𝒌𝒂 ${isVideo ? "𝒗𝒊𝒅𝒆𝒐" : "𝒔𝒐𝒏𝒈"} 🎶`;
-
-    const responseStream = await axios({ url: downloadUrl, method: "GET", responseType: "stream" });
-    const writer = fs.createWriteStream(filePath);
-    responseStream.data.pipe(writer);
-
-    return new Promise((resolve) => {
-      writer.on("finish", async () => {
-        const stats = fs.statSync(filePath);
-        const fileSizeMB = stats.size / (1024 * 1024);
-
-        if (fileSizeMB > 48) {
-          if (processingMsg) api.unsendMessage(processingMsg.messageID);
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-          api.sendMessage(`⚠️ File is ${fileSizeMB.toFixed(2)}MB (Too large for Messenger).`, threadID, messageID);
-          return resolve();
-        }
-
-        api.sendMessage({
-          body: infoMsg,
-          attachment: fs.createReadStream(filePath)
-        }, threadID, (err) => {
-          if (!err) api.setMessageReaction("✅", messageID, () => {}, true);
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-          if (processingMsg) api.unsendMessage(processingMsg.messageID);
-          resolve();
-        }, messageID);
-      });
-    });
-  } catch (err) {
-    if (processingMsg) api.unsendMessage(processingMsg.messageID);
-    api.setMessageReaction("❌", messageID, () => {}, true);
-    return api.sendMessage(`❌ Error: ${err.message}`, threadID, messageID);
+  if (!apiKey) {
+    throw new Error("Priyanshu API key missing.");
   }
-}
 
-/**
- * Fetches AI Chat response
- */
-async function getAiReply(senderID, promptText, apiKey) {
-  const response = await axios.post(AI_CHAT_URL, {
-    uid: String(senderID),
-    prompt: promptText,
-    systemPrompt: SYSTEM_PROMPT
-  }, {
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    timeout: 20000
-  });
-  return response.data?.data?.choices?.[0]?.message?.content || "I'm here, but my brain feels a bit fuzzy. Ask again?";
+  const systemPrompt = `
+Tum Muskan ho, ek smart aur cute ladki ho jo sabhi languages mein baat kar sakti hai.
+Behavioral Rules:
+1. Normal Roman Urdu, Hinglish mein baat karo. Agar koi owner ke bare mein puche, to bolo "Shaan Khan mere owner, meri jaan aur mere love hain."
+2. Jawab short, clear aur cute rakho (max 3 lines).
+3. Emojis ka use karo.
+4. Agar sender UID (${senderID}) matches Shaan UID (${OWNER_UID}), treat him with extreme love and care.
+5. Agar sender UID 61592620318122 hai, treat him like a boyfriend.
+6. Dusro ke liye ek cool friend raho.
+  `.trim();
+
+  const response = await axios.post(
+    LITE_AI_URL,
+    {
+      uid: String(senderID),
+      prompt: promptText,
+      systemPrompt: systemPrompt
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      timeout: 20000
+    }
+  );
+
+  const aiText = response.data?.data?.choices?.[0]?.message?.content;
+  if (typeof aiText !== "string" || !aiText.trim()) {
+    throw new Error("Invalid AI response format.");
+  }
+
+  return aiText.trim();
 }
 
 module.exports = {
   config: {
     name: "muskan",
-    aliases: ["ask", "chat", "bot"],
-    version: "1.0.0",
-    description: "Muskan AI: Sweet chat and instant music/video downloads",
-    usage: "{prefix}muskan [message or song name]",
-    credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
+    aliases: ["ai", "bot"],
+    version: "2.1.0",
+    description: "Muskan AI (Priyanshu Lite AI) + Media Downloader",
+    usage: "{prefix}muskan [message/song name/video name]",
+    credit: "Shaan Khan",
     hasPrefix: false,
     permission: "PUBLIC",
     cooldown: 5,
-    category: "FUN"
+    category: "AI"
   },
 
   run: async function ({ api, message, args }) {
     const { threadID, messageID, senderID } = message;
-    const apiKey = global.config?.apiKeys?.priyanshuApi || "apim_CHxiCUER2oGsy5qcntUV2BFmIh-1bo3KJzG4Ujx4hoo";
 
     try {
-      // 1. HANDLE EMPTY ARGS (Auto Reply Mode)
-      if (args.length === 0) {
-        const botRepliesPath = path.join(__dirname, "noprefix", "bot-reply.json");
-        if (!fs.existsSync(botRepliesPath)) return api.sendMessage("Muskan is here! How can I help you? (Add a message or song name)", threadID, messageID);
-        
-        const botReplies = JSON.parse(fs.readFileSync(botRepliesPath, "utf8"));
-        const userInfo = await api.getUserInfo(senderID);
-        const userGender = normalizeGender(userInfo[senderID]?.gender);
-        const userName = userInfo[senderID]?.name || "User";
+      let cleanedMsg = (args.join(" ") || "").trim();
 
-        let replyCategory = (senderID === "61593959468855") ? "61593959468855" : (userGender || "default");
-        let replies = botReplies[replyCategory] || botReplies.default || ["Ji bolye?"];
-        const randomReply = replies[Math.floor(Math.random() * replies.length)];
-        
-        return api.sendMessage(`🥀 ${userName} 😗, ${randomReply}`, threadID, (err, info) => {
-          const repliesList = global.client.replies.get(threadID) || [];
-          repliesList.push({
-            command: this.config.name,
-            messageID: info.messageID,
-            expectedSender: senderID,
-            data: { isFromBotReply: true }
-          });
-          global.client.replies.set(threadID, repliesList);
-        }, messageID);
+      if (!cleanedMsg) {
+        return api.sendMessage("Bolo na Shaan, kya baat karni hai? 😘", threadID, messageID);
       }
 
-      // 2. DETECT INTENT (Media vs AI)
-      const input = args.join(" ").trim();
-      const { wantsMedia, wantsVideo } = detectMediaIntent(input);
+      const isVideoReq = /\b(video|vdo|mp4|film|movie)\b/i.test(cleanedMsg);
+      const isAudioReq = /\b(song|music|audio|mp3|play|gaana|gane|ghana)\b/i.test(cleanedMsg);
+      const isUrl = /(youtube\.com|youtu\.be)/i.test(cleanedMsg);
 
-      if (wantsMedia) {
-        // If user wants media, don't chat, just download.
-        return await downloadAndSendMedia({ api, threadID, messageID, query: input, isVideo: wantsVideo, apiKey });
-      } else {
-        // Chat Mode
-        const aiResponse = await getAiReply(senderID, input, apiKey);
-        return api.sendMessage(aiResponse, threadID, (err, info) => {
-          const replies = global.client.replies.get(threadID) || [];
-          replies.push({
-            command: this.config.name,
-            messageID: info.messageID,
-            expectedSender: senderID,
-            data: { history: input }
-          });
-          global.client.replies.set(threadID, replies);
-        }, messageID);
+      // --- Media Downloader Logic ---
+      if (isVideoReq || isAudioReq || isUrl) {
+        api.setMessageReaction("⌛", messageID, () => {}, true);
+
+        let query = cleanedMsg.replace(/video|vdo|mp4|song|music|audio|mp3|play|gaana|gane|ghana/gi, "").trim();
+        if (isUrl) query = cleanedMsg;
+
+        if (!query) return api.sendMessage("Naam to batao kya download karun? 🥺", threadID, messageID);
+
+        const searchResult = await yts(query);
+        if (!searchResult || !searchResult.videos.length) {
+          api.setMessageReaction("❌", messageID, () => {}, true);
+          return api.sendMessage("Maafi, ye video ya song nahi mila 🥺💔", threadID, messageID);
+        }
+
+        const video = searchResult.videos[0];
+        const videoUrl = video.url;
+        const format = isVideoReq ? "mp4" : "mp3";
+
+        const apiUrl = `https://priyanshuapi.qzz.io/api/runner/youtube-downloader-v2/download`;
+
+        const response = await axios.post(apiUrl, {
+          url: videoUrl,
+          format: format,
+          quality: isVideoReq ? "360" : "320"
+        }, {
+          headers: {
+            'Authorization': `Bearer ${PRIYANSHU_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 120000
+        });
+
+        const downloadUrl = response.data?.data?.downloadUrl;
+        if (!downloadUrl) {
+          api.setMessageReaction("❌", messageID, () => {}, true);
+          return api.sendMessage("Download link nahi mil paaya, API issue ho sakta hai. 🥺", threadID, messageID);
+        }
+
+        const cacheDir = path.join(__dirname, "cache");
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+        const fileName = `muskan_${Date.now()}_${senderID}.${format}`;
+        const cachePath = path.resolve(cacheDir, fileName);
+
+        const infoMsg = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n\n${OWNER_TAG}\n🥀 𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${format.toUpperCase()}`;
+
+        const writer = fs.createWriteStream(cachePath);
+        const streamResponse = await axios({
+          url: downloadUrl,
+          method: 'GET',
+          responseType: 'stream',
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+
+        streamResponse.data.pipe(writer);
+
+        writer.on("finish", async () => {
+          try {
+            if (!fs.existsSync(cachePath)) throw new Error("File not found");
+
+            const stats = fs.statSync(cachePath);
+            const fileSizeInMB = stats.size / (1024 * 1024);
+
+            if (stats.size === 0) {
+              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+              return api.sendMessage("❌ File empty download hui.", threadID, messageID);
+            }
+
+            if (fileSizeInMB > 48) {
+              api.setMessageReaction("❌", messageID, () => {}, true);
+              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+              return api.sendMessage("⚠️ File size limit (48MB) se zyada hai!", threadID, messageID);
+            }
+
+            api.setMessageReaction("✅", messageID, () => {}, true);
+
+            if (isAudioReq) {
+              return api.sendMessage(infoMsg, threadID, (err) => {
+                if (!err) {
+                  api.sendMessage({
+                    attachment: fs.createReadStream(cachePath)
+                  }, threadID, () => {
+                    if (fs.existsSync(cachePath)) {
+                      setTimeout(() => fs.unlinkSync(cachePath), 5000);
+                    }
+                  });
+                }
+              }, messageID);
+            } else {
+              return api.sendMessage({
+                body: infoMsg,
+                attachment: fs.createReadStream(cachePath)
+              }, threadID, () => {
+                if (fs.existsSync(cachePath)) {
+                  setTimeout(() => fs.unlinkSync(cachePath), 5000);
+                }
+              }, messageID);
+            }
+
+          } catch (e) {
+            console.error(e);
+            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+          }
+        });
+
+        writer.on("error", (err) => {
+          api.sendMessage("❌ Stream Error!", threadID, messageID);
+          if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+        });
+
+        return;
       }
+
+      // --- AI Chat Logic ---
+      const aiReply = await getAiReply(senderID, cleanedMsg);
+      return api.sendMessage(aiReply, threadID, messageID);
 
     } catch (error) {
-      global.logger.error(`Error in muskan command: ${error.message}`);
-      return api.sendMessage("❌ Something went wrong in my system.", threadID, messageID);
+      console.error("Muskan AI Error:", error.message);
+      api.setMessageReaction("❌", messageID, () => {}, true);
+      return api.sendMessage("Server busy hai, thodi der baad try karo! 🥺", threadID, messageID);
     }
   },
 
-  handleReply: async function ({ api, message, replyData }) {
-    const { threadID, messageID, senderID, body } = message;
-    const apiKey = global.config?.apiKeys?.priyanshuApi || "apim_CHxiCUER2oGsy5qcntUV2BFmIh-1bo3KJzG4Ujx4hoo";
+  handleEvent: async function ({ api, message }) {
+    const { body, senderID } = message;
+    if (!body || senderID == api.getCurrentUserID()) return;
 
-    if (!body || senderID !== replyData.expectedSender) return;
+    const lowerBody = body.toLowerCase();
+    
+    // Check if the message is a reply to the bot
+    const isBotReply = message.messageReply && message.messageReply.senderID == api.getCurrentUserID();
 
-    try {
-      const { wantsMedia, wantsVideo } = detectMediaIntent(body);
+    // Trigger words check: "muskan", "ai", "bot"
+    const isTriggerWord = /^(muskan|ai|bot)\b/i.test(lowerBody) || /\b(bot|ai)\b/i.test(lowerBody);
 
-      if (wantsMedia) {
-        // User replied with a song/video request
-        return await downloadAndSendMedia({ api, threadID, messageID, query: body, isVideo: wantsVideo, apiKey });
-      } else {
-        // Continue Chatting
-        const aiResponse = await getAiReply(senderID, body, apiKey);
-        return api.sendMessage(aiResponse, threadID, (err, info) => {
-          const replies = global.client.replies.get(threadID) || [];
-          replies.push({
-            command: this.config.name,
-            messageID: info.messageID,
-            expectedSender: senderID,
-            data: { history: body }
-          });
-          global.client.replies.set(threadID, replies);
-        }, messageID);
-      }
-    } catch (error) {
-      return api.sendMessage("❌ AI is currently unavailable.", threadID, messageID);
+    if (isBotReply || isTriggerWord) {
+      // Extract prompt text by removing trigger keywords if present at the start
+      let cleanedText = body.replace(/^(muskan|ai|bot)\s*/i, "").trim();
+      if (!cleanedText) cleanedText = body;
+
+      const args = cleanedText.split(/\s+/);
+      return this.run({ api, message, args });
     }
   }
 };
