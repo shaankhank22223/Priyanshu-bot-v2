@@ -47,7 +47,7 @@ module.exports = {
   config: {
     name: "muskan",
     aliases: ["ai", "bot", "ms"],
-    version: "1.1.0",
+    version: "1.2.0",
     description: "Muskan AI with Typing Status and Auto-Media Downloader",
     usage: "{prefix}muskan [query/song/video]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
@@ -83,13 +83,19 @@ module.exports = {
 
         const video = searchResult.videos[0];
         const format = isVideoReq ? "mp4" : "mp3";
+        const mediaType = isVideoReq ? "video" : "audio";
 
-        // 1. Send Title First as requested
-        await api.sendMessage(`🎵 | 𝗕𝗮𝗯𝘆, 𝗠𝗮𝗶𝗻 𝗮𝗮𝗽𝗸𝗮 𝘀𝗼𝗻𝗴 𝗱𝗼𝘄𝗻𝗹𝗼𝗮𝗱 𝗸𝗮𝗿 𝗿𝗮𝗵𝗶 𝗵𝗼𝗼𝗻...\n\n📝 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}`, threadID);
+        // Details Template
+        const mediaDetails = `🖤𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n👁️ 𝗩𝗶𝗲𝘄𝘀: ${video.views.toLocaleString()}\n⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}\n\n${OWNER_TAG}🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${mediaType}`;
 
-        // 2. Start Download process while keeping typing indicator active
+        // 1. Agar AUDIO request hai to pehle title details send karo
+        if (!isVideoReq) {
+          await api.sendMessage(mediaDetails, threadID);
+        }
+
         api.sendTypingIndicator(threadID);
 
+        // Download link fetch process
         const dlRes = await axios.post(`https://priyanshuapi.qzz.io/api/runner/youtube-downloader-v2/download`, {
           url: video.url, format: format, quality: isVideoReq ? "360" : "320"
         }, {
@@ -101,6 +107,11 @@ module.exports = {
         if (!downloadUrl) throw new Error("Link failed");
 
         const cachePath = path.join(__dirname, "cache", `muskan_${Date.now()}.${format}`);
+        
+        // Cache directory exist verify karna
+        const cacheDir = path.join(__dirname, "cache");
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
         const writer = fs.createWriteStream(cachePath);
         const stream = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream' });
         
@@ -108,13 +119,29 @@ module.exports = {
 
         writer.on("finish", () => {
           api.setMessageReaction("✅", messageID, () => {}, true);
-          api.sendMessage({
-            body: `✨ 𝗬𝗲 𝗹𝗼 𝗯𝗮𝗯𝘆 𝗮𝗮𝗽𝗸𝗮 ${format.toUpperCase()}!\n\n${OWNER_TAG}`,
-            attachment: fs.createReadStream(cachePath)
-          }, threadID, () => {
-            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-          }, messageID);
+
+          if (isVideoReq) {
+            // VIDEO: Title info aur video ek hi message mein send hoga
+            api.sendMessage({
+              body: mediaDetails,
+              attachment: fs.createReadStream(cachePath)
+            }, threadID, () => {
+              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+            }, messageID);
+          } else {
+            // AUDIO: Bina extra text ke audio file direct send ho jayegi
+            api.sendMessage({
+              attachment: fs.createReadStream(cachePath)
+            }, threadID, () => {
+              if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+            }, messageID);
+          }
         });
+
+        writer.on("error", () => {
+          throw new Error("Write stream error");
+        });
+
         return;
       }
 
@@ -127,9 +154,9 @@ module.exports = {
 
       return api.sendMessage(reply, threadID, (err, info) => {
         if (err) return;
-        const replies = global.client.replies.get(threadID) || [];
+        const replies = global.client.replies?.get(threadID) || [];
         replies.push({ command: this.config.name, messageID: info.messageID, expectedSender: senderID });
-        global.client.replies.set(threadID, replies);
+        if (global.client.replies) global.client.replies.set(threadID, replies);
       }, messageID);
 
     } catch (error) {
@@ -152,9 +179,9 @@ module.exports = {
 
       return api.sendMessage(reply, threadID, (err, info) => {
         if (err) return;
-        const replies = global.client.replies.get(threadID) || [];
+        const replies = global.client.replies?.get(threadID) || [];
         replies.push({ command: this.config.name, messageID: info.messageID, expectedSender: senderID });
-        global.client.replies.set(threadID, replies);
+        if (global.client.replies) global.client.replies.set(threadID, replies);
       }, messageID);
     } catch (e) {
       return api.sendMessage("System error baby 🥺", threadID, messageID);
