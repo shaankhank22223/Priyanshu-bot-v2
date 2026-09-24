@@ -52,9 +52,9 @@ module.exports = {
   config: {
     name: "muskan",
     aliases: ["ai", "bot", "ms"],
-    version: "1.0.0",
-    description: "Muskan AI (Priyanshu Lite AI) with YouTube Downloader",
-    usage: "{prefix}muskan [message/song/video]",
+    version: "1.1.0",
+    description: "Muskan AI with YouTube Downloader and Unified Control",
+    usage: "{prefix}[muskan/ai/bot] [message/song/video]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
     hasPrefix: false,
     permission: "PUBLIC",
@@ -64,6 +64,12 @@ module.exports = {
 
   run: async function ({ api, message, args }) {
     const { threadID, messageID, senderID } = message;
+
+    // Typing indicator (3 dots) start
+    let stopTyping;
+    if (typeof api.sendTypingIndicator === "function") {
+      stopTyping = api.sendTypingIndicator(threadID);
+    }
 
     try {
       let query = (args.join(" ") || "").trim();
@@ -139,23 +145,28 @@ module.exports = {
       return api.sendMessage(aiReply, threadID, messageID);
 
     } catch (error) {
-      global.logger.error(`Error in Muskan: ${error.message}`);
+      if (global.logger) global.logger.error(`Error in Muskan: ${error.message}`);
+      else console.error(`Error in Muskan: ${error.message}`);
+      
       api.setMessageReaction("❌", messageID, () => {}, true);
       return api.sendMessage("Server busy hai baby, thodi der baad try karo! 🥺", threadID, messageID);
+    } finally {
+      // Stop typing indicator when done
+      if (typeof stopTyping === "function") stopTyping();
     }
   },
 
   handleEvent: async function ({ api, message }) {
-    const { body, senderID, threadID, messageID, messageReply } = message;
+    const { body, senderID, messageReply } = message;
     if (!body || senderID == api.getCurrentUserID()) return;
 
     const lowerBody = body.toLowerCase();
     const isBotReply = messageReply && messageReply.senderID == api.getCurrentUserID();
-    const isTriggerWord = /^(muskan|ai|bot)\b/i.test(lowerBody);
+    const isTriggerWord = /^(muskan|ai|bot|ms)\b/i.test(lowerBody);
 
     if (isBotReply || isTriggerWord) {
-      let cleanedText = body.replace(/^(muskan|ai|bot)\s*/i, "").trim();
-      const args = cleanedText.split(/\s+/);
+      let cleanedText = body.replace(/^(muskan|ai|bot|ms)\s*/i, "").trim();
+      const args = cleanedText ? cleanedText.split(/\s+/) : [];
       return this.run({ api, message, args });
     }
   }
