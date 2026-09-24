@@ -8,6 +8,9 @@ const OWNER_TAG = "»»𝑶𝑾𝑵𝑬𝑹««★™  »»𝑺𝑯𝑨𝑨𝑵 
 const OWNER_UID = "100016828397863"; 
 const LITE_AI_URL = "https://priyanshuapi.qzz.io/api/runner/lite-ai/chat";
 
+// Helper function for delay
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 // Gender Utility
 const { normalizeGender } = global.gender || { 
     normalizeGender: (gender) => {
@@ -19,7 +22,7 @@ const { normalizeGender } = global.gender || {
 
 async function getAiReply(senderID, promptText, senderName, senderGender) {
   const systemPrompt = `
-Tum Muskan ho, ek smart aur cute ladki ho. Jawab Roman Urdu/Hinglish mein do.
+Tum Muskan ho, ek smart aur cute ladki ho. Tum Shaan ki Girlfriend ho. Koi flirt Kare to usko acchi Tarah se jawab den. Jawab Roman Urdu/Hinglish mein do.
 User Name: ${senderName}, Gender: ${senderGender}.
 Rules:
 1. Shaan Khan (${OWNER_UID}) tumhare owner aur love hain.
@@ -47,7 +50,7 @@ module.exports = {
   config: {
     name: "muskan",
     aliases: ["ai", "bot", "ms"],
-    version: "1.2.0",
+    version: "1.3.0",
     description: "Muskan AI with Typing Status and Auto-Media Downloader",
     usage: "{prefix}muskan [query/song/video]",
     credit: "𝐏𝐫𝐢𝐲𝐚𝐧𝐬𝐡 𝐑𝐚𝐣𝐩𝐮𝐭",
@@ -83,12 +86,12 @@ module.exports = {
 
         const video = searchResult.videos[0];
         const format = isVideoReq ? "mp4" : "mp3";
-        const mediaType = isVideoReq ? "video" : "audio";
+        const mediaType = isVideoReq ? "Video" : "Audio";
 
-        // Details Template
-        const mediaDetails = `🖤𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n👁️ 𝗩𝗶𝗲𝘄𝘀: ${video.views.toLocaleString()}\n⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}\n\n${OWNER_TAG}🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${mediaType}`;
+        // Template (Views removed)
+        const mediaDetails = `🖤 𝗧𝗶𝘁𝗹𝗲: ${video.title}\n👤 𝗔𝗿𝘁𝗶𝘀𝘁: ${video.author.name}\n⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}\n\n${OWNER_TAG}🥀𝒀𝑬 𝑳𝑶 𝑩𝑨𝑩𝒀 𝑨𝑷𝑲𝑰👉 ${mediaType}`;
 
-        // 1. Agar AUDIO request hai to pehle title details send karo
+        // 1. Audio Request par Title details turant send hongi
         if (!isVideoReq) {
           await api.sendMessage(mediaDetails, threadID);
         }
@@ -106,22 +109,20 @@ module.exports = {
         const downloadUrl = dlRes.data?.data?.downloadUrl;
         if (!downloadUrl) throw new Error("Link failed");
 
-        const cachePath = path.join(__dirname, "cache", `muskan_${Date.now()}.${format}`);
-        
-        // Cache directory exist verify karna
         const cacheDir = path.join(__dirname, "cache");
         if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 
+        const cachePath = path.join(cacheDir, `muskan_${Date.now()}.${format}`);
         const writer = fs.createWriteStream(cachePath);
         const stream = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream' });
         
         stream.data.pipe(writer);
 
-        writer.on("finish", () => {
+        writer.on("finish", async () => {
           api.setMessageReaction("✅", messageID, () => {}, true);
 
           if (isVideoReq) {
-            // VIDEO: Title info aur video ek hi message mein send hoga
+            // VIDEO: Single message with details and attachment
             api.sendMessage({
               body: mediaDetails,
               attachment: fs.createReadStream(cachePath)
@@ -129,12 +130,13 @@ module.exports = {
               if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
             }, messageID);
           } else {
-            // AUDIO: Bina extra text ke audio file direct send ho jayegi
+            // AUDIO: 3-second delay ke baad bina reply option ke audio file direct send hogi
+            await sleep(3000);
             api.sendMessage({
               attachment: fs.createReadStream(cachePath)
             }, threadID, () => {
               if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-            }, messageID);
+            }); // messageID parameter yahan se hata diya hai taki reply na bane
           }
         });
 
